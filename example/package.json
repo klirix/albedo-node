@@ -1,0 +1,16 @@
+{
+  "name": "example",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "albedo-node": "../",
+    "better-sqlite3": "^12.6.2"
+  }
+}
