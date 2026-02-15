@@ -7,7 +7,8 @@
   "scripts": {
     "build:binding": "zig build",
     "build:ts": "bun run tsc -p tsconfig.json",
-    "build": "bun run build:binding && bun run build:ts"
+    "build": "bun run build:binding && bun run build:ts",
+    "preinstall": "bun run build:binding"
   },
   "author": "",
   "license": "MIT",
