@@ -1,6 +1,6 @@
 {
   "name": "albedo-node",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Albedo DB native bindings",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -8,7 +8,7 @@
     "build:binding": "zig build",
     "build:ts": "bun run tsc -p tsconfig.json",
     "build": "bun run build:binding && bun run build:ts",
-    "preinstall": "bun run build:binding"
+    "release": "bun ./scripts/publish.ts"
   },
   "author": "",
   "license": "MIT",

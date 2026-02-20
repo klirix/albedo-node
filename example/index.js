@@ -1,79 +1,95 @@
-import { Bucket } from "albedo-node";
+import { BSON, Bucket } from "albedo-node";
 import Database from "bun:sqlite";
+import { unlinkSync } from "fs";
+
+const docNum = 100000;
 
 const sqliteDb = new Database("db.sqlite");
 sqliteDb
   .prepare(
     `
   CREATE TABLE IF NOT EXISTS documents (
-    id TEXT PRIMARY KEY,
-    name TEXT,
-    age INTEGER
+    _id INTEGER PRIMARY KEY,
+    doc JSON
   );
 `,
   )
   .run();
 
-sqliteDb.prepare("create index IF NOT EXISTS idx_id on documents(id);").run();
+sqliteDb.prepare("drop index IF EXISTS idx_doc_id;").run();
+sqliteDb.prepare("create unique index idx_doc_id on documents(json_extract(doc, '$._id'));").run();
 
-console.time("Insert 1000 documents into SQLite");
-for (let i = 0; i < 10000; i++) {
-  sqliteDb
-    .prepare("INSERT INTO documents (id, name, age) VALUES (?, ?, ?)")
-    .run(`id_${i}`, `Name ${i}`, 20 + (i % 30));
+console.time("Insert 100000 documents into SQLite");
+const insertStmt = sqliteDb.prepare("INSERT INTO documents (doc) VALUES (json(?))");
+for (let i = 0; i < docNum; i++) {
+    insertStmt.run(JSON.stringify({
+      _id: i,
+      name: `Name ${i}`,
+      age: i,
+    }));
 }
-console.timeEnd("Insert 1000 documents into SQLite");
+console.timeEnd("Insert 100000 documents into SQLite");
 
-console.time("Query scan x 1000 in SQLite");
-for (let i = 0; i < 1000; i++) {
-  sqliteDb
-    .prepare("SELECT * FROM documents WHERE age = ? LIMIT 1")
-    .get(Math.floor(Math.random() * 30) + 20);
+console.time("Query scan x 100 in SQLite");
+for (let i = 0; i < 100; i++) {
+  const row = sqliteDb
+    .prepare("SELECT doc FROM documents WHERE json_extract(doc, '$.age') = ? LIMIT 100")
+    .get(Math.floor(Math.random() * docNum));
+  if (row) JSON.parse(row.doc);
 }
-console.timeEnd("Query scan x 1000 in SQLite");
+console.timeEnd("Query scan x 100 in SQLite");
 
-console.time("Query index x 1000 in SQLite");
-for (let i = 0; i < 1000; i++) {
-  sqliteDb
-    .prepare("SELECT * FROM documents WHERE id = ? LIMIT 1")
-    .get(`id_${Math.floor(Math.random() * 10000)}`);
+console.time("Query index x 100 in SQLite");
+for (let i = 0; i < 100; i++) {
+  const row = sqliteDb
+    .prepare(
+      "SELECT doc FROM documents WHERE json_extract(doc, '$._id') = ? LIMIT 100",
+    )
+    .get(Math.floor(Math.random() * docNum));
+  if (row) JSON.parse(row.doc);
 }
-console.timeEnd("Query index x 1000 in SQLite");
+console.timeEnd("Query index x 100 in SQLite");
 
 sqliteDb.close();
 
 const bucket = Bucket.open("db.bucket");
 
-console.time("Insert 1000 documents");
-for (let i = 0; i < 10000; i++) {
+// bucket.dropIndex("_id");
+
+console.time("Insert 100000 documents");
+for (let i = 0; i < docNum; i++) {
   bucket.insert({
-    _id: `id_${i}`,
+    _id: i,
     name: `Name ${i}`,
-    age: 20 + (i % 30),
+    age: i,
   });
 }
-console.timeEnd("Insert 1000 documents");
+console.timeEnd("Insert 100000 documents");
 
-console.time("Query scan x 1000");
-for (let i = 0; i < 1000; i++) {
+console.time("Query scan x 100");
+for (let i = 0; i < 100; i++) {
   bucket
     .list({
-      query: { age: Math.floor(Math.random() * 30) + 20 },
-      sector: { limit: 1 },
+      query: { age: Math.floor(Math.random() * docNum) },
+      sector: { limit: 100 },
     })
-    .toArray();
+    .next();
 }
-console.timeEnd("Query scan x 1000");
+console.timeEnd("Query scan x 100");
 
-console.time("Query index x 1000");
-for (let i = 0; i < 1000; i++) {
+console.time("Query index x 100");
+for (let i = 0; i < 100; i++) {
+  
   bucket
     .list({
-      query: { _id: `id_${Math.floor(Math.random() * 10000)}` },
-      sector: { limit: 1 },
+      query: { _id: Math.floor(Math.random() * docNum) },
+      sector: { limit: 100 },
     })
-    .toArray();
+    .next();
 }
-console.timeEnd("Query index x 1000");
+console.timeEnd("Query index x 100");
 
 bucket.close();
+
+unlinkSync("db.sqlite");
+unlinkSync("db.bucket");

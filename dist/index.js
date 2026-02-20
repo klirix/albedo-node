@@ -1,10 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Bucket = void 0;
-const platformSuffix = process.platform;
-const archSuffix = process.arch === "x64" ? "x86_64" : process.arch;
-const albedo = require(`../native/albedo.${archSuffix}_${platformSuffix}.node`);
+exports.Bucket = exports.BSON = void 0;
+const platformSuffix = process.platform == "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
+const archSuffix = process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch;
+const isMusl = process.versions.libc && process.versions.libc.includes("musl");
+const libcSuffix = isMusl ? "_musl" : "";
+const albedo = require(`../native/albedo.${archSuffix}_${platformSuffix}${libcSuffix}.node`);
 exports.default = albedo;
+exports.BSON = {
+    serialize: albedo.serialize,
+    deserialize: albedo.deserialize,
+};
 class Bucket {
     handle;
     constructor(handle) {
@@ -18,8 +24,10 @@ class Bucket {
         albedo.close(this.handle);
     }
     insert(doc) {
-        const data = albedo.serialize(doc);
-        albedo.insert(this.handle, data);
+        albedo.insert(this.handle, doc);
+    }
+    delete(query) {
+        albedo.delete(this.handle, query);
     }
     get indexes() {
         return albedo.listIndexes(this.handle);
@@ -31,12 +39,11 @@ class Bucket {
         albedo.dropIndex(this.handle, name);
     }
     *list(query) {
-        const queryData = albedo.serialize(query);
-        const cursor = albedo.list(this.handle, queryData);
+        const cursor = albedo.list(this.handle, query);
         try {
             let data;
             while ((data = albedo.listData(cursor)) !== null) {
-                yield albedo.deserialize(data);
+                yield data;
             }
         }
         finally {
@@ -44,13 +51,12 @@ class Bucket {
         }
     }
     *transformIterator(query) {
-        const queryData = albedo.serialize(query);
-        const iter = albedo.transform(this.handle, queryData);
+        const iter = albedo.transform(this.handle, query);
         try {
             let data;
             while ((data = albedo.transformData(iter)) !== null) {
-                const newDoc = yield albedo.deserialize(data);
-                albedo.transformApply(iter, newDoc !== null ? albedo.serialize(newDoc) : null);
+                const newDoc = yield data;
+                albedo.transformApply(iter, newDoc);
             }
         }
         finally {

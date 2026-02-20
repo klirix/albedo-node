@@ -178,10 +178,20 @@ fn list(js: *napigen.JsContext, bucket: *albedo.Bucket, queryBuf: napigen.napi_v
     const arena = try ally.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(ally);
 
-    const js_bytes = try getTypedArraySlice(js, queryBuf);
-    const query_bytes = try arena.allocator().alloc(u8, js_bytes.len);
-    @memcpy(query_bytes, js_bytes);
-    const queryDoc = albedo.BSONDocument{ .buffer = query_bytes };
+    const queryDoc = blk: {
+        var is_typed_array = false;
+        try napigen.check(napigen.napi.napi_is_typedarray(js.env, queryBuf, &is_typed_array));
+        if (is_typed_array) {
+            const js_bytes = try getTypedArraySlice(js, queryBuf);
+            break :blk albedo.BSONDocument{ .buffer = js_bytes };
+        } else if (try js.typeOf(queryBuf) == napigen.napi.napi_object) {
+            const doc = try bson.jsObjectToBsonDoc(js, queryBuf);
+            break :blk doc;
+        } else {
+            arena.deinit();
+            return error.InvalidQuery;
+        }
+    };
 
     const query = try albedo.Query.parse(arena.allocator(), queryDoc);
     const cursor = try bucket.listIterate(arena, query);
@@ -197,13 +207,22 @@ fn listData(js: *napigen.JsContext, cursor: *albedo.Bucket.ListIterator) !napige
     const doc = try cursor.next(cursor);
     if (doc == null) return js.null();
 
-    return try createUint8Array(js.env, doc.?.buffer);
+    return try bson.bsonDocToJsObject(js, doc.?);
 }
 
 fn insert(js: *napigen.JsContext, bucket: *albedo.Bucket, docBuf: napigen.napi_value) !void {
-    const js_bytes = try getTypedArraySlice(js, docBuf);
-    const doc = albedo.BSONDocument{ .buffer = js_bytes };
-    _ = try bucket.insert(doc);
+    var is_typed_array = false;
+    try napigen.check(napigen.napi.napi_is_typedarray(js.env, docBuf, &is_typed_array));
+    if (is_typed_array) {
+        const js_bytes = try getTypedArraySlice(js, docBuf);
+        const doc = albedo.BSONDocument{ .buffer = js_bytes };
+        _ = try bucket.insert(doc);
+    } else if (try js.typeOf(docBuf) == napigen.napi.napi_object) {
+        const doc = try bson.jsObjectToBsonDoc(js, docBuf);
+        _ = try bucket.insert(doc);
+    } else {
+        return error.InvalidDocument;
+    }
 }
 
 const IndexOptions = struct {
@@ -243,25 +262,26 @@ fn dropIndex(bucket: *albedo.Bucket, name: []const u8) !void {
     try bucket.dropIndex(name);
 }
 
-fn delete(js: *napigen.JsContext, bucket: *albedo.Bucket, queryBuf: napigen.napi_value) !void {
+fn delete(js: *napigen.JsContext, bucket: *albedo.Bucket, queryObj: napigen.napi_value) !void {
     var arena = std.heap.ArenaAllocator.init(ally);
+    const arena_ally = arena.allocator();
 
-    const queryDoc = try getTypedArraySlice(js, queryBuf);
-    var query = albedo.Query.parse(arena.allocator(), albedo.BSONDocument{ .buffer = queryDoc }) catch {
+    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj);
+    var query = albedo.Query.parse(arena_ally, queryDoc) catch {
         arena.deinit();
         return error.InvalidQuery;
     };
-    query.deinit(arena.allocator());
+    defer query.deinit(arena_ally);
 
     try bucket.delete(query);
 }
 
-fn transform(js: *napigen.JsContext, bucket: *albedo.Bucket, queryBuf: napigen.napi_value) !*albedo.Bucket.TransformIterator {
+fn transform(js: *napigen.JsContext, bucket: *albedo.Bucket, queryObj: napigen.napi_value) !*albedo.Bucket.TransformIterator {
     const arena = try ally.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(ally);
 
-    const js_bytes = try getTypedArraySlice(js, queryBuf);
-    const query = try albedo.Query.parse(arena.allocator(), albedo.BSONDocument{ .buffer = js_bytes });
+    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj);
+    const query = try albedo.Query.parse(arena.allocator(), queryDoc);
 
     return try bucket.transformIterate(arena, query);
 }
@@ -270,7 +290,7 @@ fn transformData(js: *napigen.JsContext, iter: *albedo.Bucket.TransformIterator)
     const result = try iter.data();
     if (result == null) return null;
 
-    return try createUint8Array(js.env, result.?.buffer);
+    return try bson.bsonDocToJsObject(js, result.?);
 }
 
 fn transformApply(js: *napigen.JsContext, iter: *albedo.Bucket.TransformIterator, replaceBuffer: napigen.napi_value) !void {
@@ -278,9 +298,17 @@ fn transformApply(js: *napigen.JsContext, iter: *albedo.Bucket.TransformIterator
         if (try js.typeOf(replaceBuffer) == napigen.napi.napi_null) {
             break :blk null;
         }
-
-        const js_bytes = try getTypedArraySlice(js, replaceBuffer);
-        break :blk &albedo.BSONDocument.init(js_bytes);
+        var is_typed_array = false;
+        try napigen.check(napigen.napi.napi_is_typedarray(js.env, replaceBuffer, &is_typed_array));
+        if (is_typed_array) {
+            const js_bytes = try getTypedArraySlice(js, replaceBuffer);
+            break :blk &albedo.BSONDocument.init(js_bytes);
+        }
+        if (try js.typeOf(replaceBuffer) == napigen.napi.napi_object) {
+            const doc = try bson.jsObjectToBsonDoc(js, replaceBuffer);
+            break :blk &doc;
+        }
+        return error.InvalidDocument;
     };
 
     if (doc == null) return;
@@ -326,9 +354,9 @@ fn setReplicationCallback(js: *napigen.JsContext, bucket: *albedo.Bucket, cb: na
 }
 
 fn applyReplicationBatch(js: *napigen.JsContext, bucket: *albedo.Bucket, data: napigen.napi_value) !void {
-    if (bucket.replication_callback == null) return;
+    // if (bucket.replication_callback == null) return;
     const js_bytes = try getTypedArraySlice(js, data);
-    try bucket.applyReplicatedBatch(js_bytes, @truncate(js_bytes.len >> 13));
+    try bucket.applyReplicatedBatch(js_bytes, @truncate(@divFloor(js_bytes.len - 64, 8192)));
 }
 
 fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napigen.napi_value {

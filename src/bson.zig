@@ -29,12 +29,13 @@ pub fn serialize(js: *ng.JsContext, jsObject: napi_value) !napi_value {
     return uint8arr;
 }
 
-fn jsObjectToBsonDoc(js: *ng.JsContext, jsObject: napi_value) ng.Error!albedo.BSONDocument {
+pub fn jsObjectToBsonDoc(js: *ng.JsContext, jsObject: napi_value) ng.Error!albedo.BSONDocument {
     var propertyNames: napi_value = undefined;
     try ng.check(napi.napi_get_property_names(js.env, jsObject, &propertyNames));
     const length = try js.getArrayLength(propertyNames);
     const ally = js.arena.allocator();
     const keypairs = try ally.alloc(bson.BSONKeyValuePair, length);
+
     defer ally.free(keypairs);
     for (0..length) |i| {
         const jsStringKey = try js.getElement(propertyNames, @truncate(i));
@@ -171,7 +172,7 @@ pub fn deserialize(js: *ng.JsContext, uint8arr: napi_value) !napi_value {
     return bsonDocToJsObject(js, doc);
 }
 
-fn bsonDocToJsObject(js: *ng.JsContext, doc: albedo.BSONDocument) ng.Error!napi_value {
+pub fn bsonDocToJsObject(js: *ng.JsContext, doc: albedo.BSONDocument) ng.Error!napi_value {
     // Check if this is actually an array (keys are "0", "1", "2", ...)
     var pairIter = doc.iter();
     var isArray = true;

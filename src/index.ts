@@ -33,20 +33,20 @@ interface AlbedoModule {
   deserialize<T = unknown>(data: ByteBuffer): T;
   open(path: string): BucketHandle;
   close(bucket: BucketHandle): void;
-  list(bucket: BucketHandle, query: ByteBuffer): ListIteratorHandle;
+  list(bucket: BucketHandle, query: object): ListIteratorHandle;
   listClose(cursor: ListIteratorHandle): void;
-  listData(cursor: ListIteratorHandle): Uint8Array | null;
-  insert(bucket: BucketHandle, doc: ByteBuffer): void;
+  listData(cursor: ListIteratorHandle): unknown | null;
+  insert(bucket: BucketHandle, doc: ByteBuffer | object): void;
   ensureIndex(bucket: BucketHandle, name: string, options: IndexOptions): void;
   listIndexes(bucket: BucketHandle): Record<string, IndexInfo>;
   dropIndex(bucket: BucketHandle, name: string): void;
-  delete(bucket: BucketHandle, query: ByteBuffer): void;
-  transform(bucket: BucketHandle, query: ByteBuffer): TransformIteratorHandle;
+  delete(bucket: BucketHandle, query: object): void;
+  transform(bucket: BucketHandle, query: object): TransformIteratorHandle;
   transformClose(iter: TransformIteratorHandle): void;
-  transformData(iter: TransformIteratorHandle): Uint8Array | null;
+  transformData(iter: TransformIteratorHandle): unknown | null;
   transformApply(
     iter: TransformIteratorHandle,
-    replace: ByteBuffer | null,
+    replace: ByteBuffer | object | null,
   ): void;
   setReplicationCallback(
     bucket: BucketHandle,
@@ -55,14 +55,21 @@ interface AlbedoModule {
   applyReplicationBatch(bucket: BucketHandle, data: ByteBuffer): void;
 }
 
-const platformSuffix = process.platform;
-const archSuffix = process.arch === "x64" ? "x86_64" : process.arch;
+const platformSuffix = process.platform == "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
+const archSuffix = process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch;
+const isMusl = process.versions.libc && process.versions.libc.includes("musl");
+const libcSuffix = isMusl ? "_musl" : "";
 
 const albedo = require(
-  `../native/albedo.${archSuffix}_${platformSuffix}.node`,
+  `../native/albedo.${archSuffix}_${platformSuffix}${libcSuffix}.node`,
 ) as AlbedoModule;
 
 export default albedo;
+
+export const BSON = {
+  serialize: albedo.serialize,
+  deserialize: albedo.deserialize,
+};
 
 export class Bucket {
   private handle: BucketHandle;
@@ -80,9 +87,12 @@ export class Bucket {
     albedo.close(this.handle);
   }
 
-  insert(doc: unknown): void {
-    const data = albedo.serialize(doc);
-    albedo.insert(this.handle, data);
+  insert(doc: object | ByteBuffer): void {
+    albedo.insert(this.handle, doc);
+  }
+
+  delete(query: object): void {
+    albedo.delete(this.handle, query);
   }
 
   get indexes() {
@@ -97,13 +107,12 @@ export class Bucket {
     albedo.dropIndex(this.handle, name);
   }
 
-  *list<T>(query: unknown): Generator<T> {
-    const queryData = albedo.serialize(query);
-    const cursor = albedo.list(this.handle, queryData);
+  *list<T>(query: object): Generator<T> {
+    const cursor = albedo.list(this.handle, query);
     try {
-      let data: Uint8Array | null;
+      let data: unknown | null;
       while ((data = albedo.listData(cursor)) !== null) {
-        yield albedo.deserialize<T>(data);
+        yield data as T;
       }
     } finally {
       albedo.listClose(cursor);
@@ -111,18 +120,14 @@ export class Bucket {
   }
 
   *transformIterator<T>(
-    query: unknown,
+    query: object
   ): Generator<T, undefined, null | object> {
-    const queryData = albedo.serialize(query);
-    const iter = albedo.transform(this.handle, queryData);
+    const iter = albedo.transform(this.handle, query);
     try {
-      let data: Uint8Array | null;
+      let data: unknown | null;
       while ((data = albedo.transformData(iter)) !== null) {
-        const newDoc = yield albedo.deserialize<T>(data);
-        albedo.transformApply(
-          iter,
-          newDoc !== null ? albedo.serialize(newDoc) : null,
-        );
+        const newDoc = yield data as T;
+        albedo.transformApply(iter, newDoc);
       }
     } finally {
       albedo.transformClose(iter);
