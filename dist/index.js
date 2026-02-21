@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Query = exports.Bucket = exports.BSON = void 0;
+exports.Query = exports.Bucket = exports.ObjectId = exports.BSON = void 0;
 exports.where = where;
 const platformSuffix = process.platform == "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
 const archSuffix = process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch;
@@ -12,6 +12,16 @@ exports.BSON = {
     serialize: albedo.serialize,
     deserialize: albedo.deserialize,
 };
+/**
+ * Native ObjectId class constructor.
+ *
+ * @example
+ * ```ts
+ * const id = new ObjectId();
+ * const parsed = ObjectId.fromString(id.toString());
+ * ```
+ */
+exports.ObjectId = albedo.ObjectId;
 /**
  * Wrapper around a native Albedo bucket handle providing
  * methods for CRUD operations, indexing, iteration, and

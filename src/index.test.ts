@@ -1,6 +1,6 @@
 import Bun from 'bun';
 import {describe, test, expect} from 'bun:test';
-import albedo, {BSON, Bucket, where} from './index';
+import albedo, {BSON, Bucket, where, ObjectId} from './index';
 
 describe('Albedo — major functionality', () => {
     test('insert & list (objects)', async () => {
@@ -19,7 +19,7 @@ describe('Albedo — major functionality', () => {
         await Bun.file(db).delete();
     });
 
-    test('ObjectId and BSON serialize/deserialize roundtrip', () => {
+    test('ObjectId and BSON serialize/deserialize roundtrip using albedo.ObjectId', () => {
         const id = new albedo.ObjectId();
         const hex = id.toString();
         expect(typeof hex).toBe('string');
@@ -36,6 +36,16 @@ describe('Albedo — major functionality', () => {
         expect(got._id).toBeDefined();
         expect(got._id.toString()).toBe(hex);
         expect(got.nested).toEqual({ n: 1 });
+    });
+
+    test('ObjectId constructor & fromString via direct import', () => {
+        const id = new ObjectId();
+        const hex = id.toString();
+        expect(typeof hex).toBe('string');
+        expect(hex).toHaveLength(24);
+
+        const same = ObjectId.fromString(hex);
+        expect(same.toString()).toBe(hex);
     });
 
     test('ensureIndex, listIndexes and dropIndex', async () => {

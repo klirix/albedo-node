@@ -19,7 +19,7 @@ interface ObjectIdInstance {
 }
 interface ObjectIdConstructor {
     new (buffer?: ByteBuffer): ObjectIdInstance;
-    fromString(hex: string): ObjectIdInstance;
+    fromString(str: string): ObjectIdInstance;
 }
 interface AlbedoModule {
     ObjectId: ObjectIdConstructor;
@@ -48,6 +48,16 @@ export declare const BSON: {
     serialize: (value: unknown) => Uint8Array;
     deserialize: <T = unknown>(data: ByteBuffer) => T;
 };
+/**
+ * Native ObjectId class constructor.
+ *
+ * @example
+ * ```ts
+ * const id = new ObjectId();
+ * const parsed = ObjectId.fromString(id.toString());
+ * ```
+ */
+export declare const ObjectId: ObjectIdConstructor;
 /**
  * Wrapper around a native Albedo bucket handle providing
  * methods for CRUD operations, indexing, iteration, and

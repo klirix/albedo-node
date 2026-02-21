@@ -1,9 +1,25 @@
 {
   "name": "albedo-node",
-  "version": "0.5.5",
-  "description": "Albedo DB native bindings",
+  "version": "0.5.6",
+  "description": "High-performance embedded database for Node.js with native bindings, BSON support, indexing, and replication",
+  "keywords": [
+    "albedo",
+    "database",
+    "embedded-database",
+    "bson",
+    "native",
+    "node-addon"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/klirix/albedo-node.git"
+  },
+  "homepage": "https://github.com/klirix/albedo-node#readme",
+  "bugs": {
+    "url": "https://github.com/klirix/albedo-node/issues"
+  },
   "scripts": {
     "build:binding": "zig build",
     "build:ts": "bun run tsc -p tsconfig.json",

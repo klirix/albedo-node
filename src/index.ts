@@ -24,7 +24,7 @@ interface ObjectIdInstance {
 
 interface ObjectIdConstructor {
   new (buffer?: ByteBuffer): ObjectIdInstance;
-  fromString(hex: string): ObjectIdInstance;
+  fromString(str: string): ObjectIdInstance;
 }
 
 interface AlbedoModule {
@@ -70,6 +70,17 @@ export const BSON = {
   serialize: albedo.serialize,
   deserialize: albedo.deserialize,
 };
+
+/**
+ * Native ObjectId class constructor.
+ *
+ * @example
+ * ```ts
+ * const id = new ObjectId();
+ * const parsed = ObjectId.fromString(id.toString());
+ * ```
+ */
+export const ObjectId: ObjectIdConstructor = albedo.ObjectId;
 
 /**
  * Wrapper around a native Albedo bucket handle providing
