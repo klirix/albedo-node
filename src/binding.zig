@@ -311,8 +311,6 @@ fn transformApply(js: *napigen.JsContext, iter: *albedo.Bucket.TransformIterator
         return error.InvalidDocument;
     };
 
-    if (doc == null) return;
-
     try iter.transform(doc);
 }
 

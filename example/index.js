@@ -1,4 +1,4 @@
-import { BSON, Bucket } from "albedo-node";
+import { BSON, Bucket, where } from "albedo-node";
 import Database from "bun:sqlite";
 import { unlinkSync } from "fs";
 
@@ -81,10 +81,7 @@ console.time("Query index x 100");
 for (let i = 0; i < 100; i++) {
   
   bucket
-    .list({
-      query: { _id: Math.floor(Math.random() * docNum) },
-      sector: { limit: 100 },
-    })
+    .list(where("_id", { $eq: Math.floor(Math.random() * docNum) }).sector(0, 100))
     .next();
 }
 console.timeEnd("Query index x 100");

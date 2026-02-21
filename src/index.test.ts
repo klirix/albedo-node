@@ -1,6 +1,6 @@
 import Bun from 'bun';
 import {describe, test, expect} from 'bun:test';
-import albedo, {BSON, Bucket} from './index';
+import albedo, {BSON, Bucket, where} from './index';
 
 describe('Albedo — major functionality', () => {
     test('insert & list (objects)', async () => {
@@ -96,10 +96,59 @@ describe('Albedo — major functionality', () => {
         bucket.insert({ name: 'Bob' });
 
         // delete Alice
-        bucket.delete({ query: { name: 'Alice' } });
+        bucket.delete(where('name', { $eq: 'Alice' }));
 
         const results = Array.from(bucket.list({}));
         expect(results).toEqual([{ name: 'Bob', _id: expect.anything() }]);
+
+        bucket.close();
+        await Bun.file(db).delete();
+    });
+
+    test('Bucket.transform helper modifies and deletes documents', async () => {
+        const db = 'test-transform-helper.db';
+        const bucket = Bucket.open(db);
+        bucket.insert({ name: 'A', count: 1 });
+        bucket.insert({ name: 'B', count: 5 });
+        bucket.insert({ name: 'C', count: 10 });
+
+        // increment counts under 6, delete count >= 10
+        bucket.transform({}, (doc: any) => {
+            if (doc.count >= 10) return null;
+            return { ...doc, count: doc.count + 1 };
+        });
+
+
+        const results = Array.from(bucket.list({}));
+        expect(results).toEqual(
+            expect.arrayContaining([
+                { name: 'A', count: 2, _id: expect.anything() },
+                { name: 'B', count: 6, _id: expect.anything() },
+            ]),
+        );
+        // C should be gone
+        expect(results.find(r => (r as any).name === 'C')).toBeUndefined();
+
+        bucket.close();
+        await Bun.file(db).delete();
+    });
+
+    test('Bucket.transform can be used with query builder', async () => {
+        const db = 'test-transform-builder.db';
+        const bucket = Bucket.open(db);
+        bucket.insert({ kind: 'x', val: 2 });
+        bucket.insert({ kind: 'y', val: 3 });
+
+
+        bucket.transform(where('kind', { $eq: 'x' }), (d: any) => ({ ...d, val: d.val * 10 }));
+
+        const results = Array.from(bucket.list({}));
+        expect(results).toEqual(
+            expect.arrayContaining([
+                { kind: 'x', val: 20, _id: expect.anything() },
+                { kind: 'y', val: 3, _id: expect.anything() },
+            ]),
+        );
 
         bucket.close();
         await Bun.file(db).delete();
