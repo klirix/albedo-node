@@ -3,12 +3,12 @@ const napigen = @import("napigen");
 const albedo = @import("Albedo");
 
 const targetMatrix = [_]std.Target.Query{
-    .{ .cpu_arch = .x86_64, .os_tag = .linux },
-    .{ .cpu_arch = .x86_64, .os_tag = .linux },
+    .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
+    .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl },
-    // .{ .cpu_arch = .aarch64, .os_tag = .windows },
-    // .{ .cpu_arch = .x86_64, .os_tag = .windows },
+    // .{ .cpu_arch = .aarch64, .os_tag = .windows }, // Windows on ARM is not widely used and may require additional setup, so it's commented out for now.
+    .{ .cpu_arch = .x86_64, .os_tag = .windows },
     .{ .cpu_arch = .aarch64, .os_tag = .macos },
     .{ .cpu_arch = .x86_64, .os_tag = .macos },
 };

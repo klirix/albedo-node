@@ -58,7 +58,7 @@ interface AlbedoModule {
 const platformSuffix = process.platform == "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
 const archSuffix = process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch;
 const isMusl = process.versions.libc && process.versions.libc.includes("musl");
-const libcSuffix = isMusl ? "_musl" : "";
+const libcSuffix = process.platform == "linux" ? (isMusl ? "_musl" : "_gnu") : "";
 
 const albedo = require(
   `../native/albedo.${archSuffix}_${platformSuffix}${libcSuffix}.node`,
@@ -340,7 +340,7 @@ export class Bucket {
 type BSONValue = any;
 
 type FilterOperators =
-  | { $eq: BSONValue }
+  | { $eq: BSONValue } | BSONValue // shorthand for equality
   | { $ne: BSONValue }
   | { $lt: BSONValue }
   | { $lte: BSONValue }
@@ -351,7 +351,7 @@ type FilterOperators =
   | { $startsWith: string }
   | { $endsWith: string }
   | { $exists: boolean }
-  | { $notExists: boolean };
+  | { $notExists: boolean }
 
 type QueryObject = {
   /** field path → filter */

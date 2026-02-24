@@ -237,7 +237,7 @@ export declare class Bucket {
 type BSONValue = any;
 type FilterOperators = {
     $eq: BSONValue;
-} | {
+} | BSONValue | {
     $ne: BSONValue;
 } | {
     $lt: BSONValue;

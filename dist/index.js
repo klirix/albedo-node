@@ -5,7 +5,7 @@ exports.where = where;
 const platformSuffix = process.platform == "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
 const archSuffix = process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch;
 const isMusl = process.versions.libc && process.versions.libc.includes("musl");
-const libcSuffix = isMusl ? "_musl" : "";
+const libcSuffix = process.platform == "linux" ? (isMusl ? "_musl" : "_gnu") : "";
 const albedo = require(`../native/albedo.${archSuffix}_${platformSuffix}${libcSuffix}.node`);
 exports.default = albedo;
 exports.BSON = {
