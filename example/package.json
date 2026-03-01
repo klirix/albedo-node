@@ -10,7 +10,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "albedo-node": "../",
-    "better-sqlite3": "^12.6.2"
+    "albedo-node": "0.5.90"
   }
 }

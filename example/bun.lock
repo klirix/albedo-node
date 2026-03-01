@@ -5,7 +5,7 @@
     "": {
       "name": "example",
       "dependencies": {
-        "albedo-node": "../",
+        "albedo-node": "0.5.89",
         "better-sqlite3": "^12.6.2",
       },
       "devDependencies": {
@@ -21,7 +21,7 @@
 
     "@types/node": ["@types/node@24.10.13", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-oH72nZRfDv9lADUBSo104Aq7gPHpQZc4BTx38r9xf9pg5LfP6EzSyH2n7qFmmxRQXh7YlUXODcYsg6PuTDSxGg=="],
 
-    "albedo-node": ["albedo-node@file:..", { "devDependencies": { "@types/node": "^24.0.0", "typescript": "^5.9.3" } }],
+    "albedo-node": ["albedo-node@0.5.89", "", {}, "sha512-pjmtmzYZUQlOSxocvo+PqWzKOhnpbtokN3qnwe6MmgSrGXx7Bu1Ro5oXbQ3jxPrCrfU/ZqCrMKjdhhz2XRlw+g=="],
 
     "base64-js": ["base64-js@1.5.1", "", {}, "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA=="],
 
