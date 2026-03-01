@@ -184,6 +184,34 @@ class Bucket {
         }
     }
     /**
+     * Collect all documents matching the optional query into an array.
+     * @param query - filter or `Query` object
+     * @returns array of all matching documents
+     * @example
+     * ```ts
+     * const docs = bucket.all<{ name: string }>(where('name', { $exists: true }));
+     * ```
+     */
+    all(query) {
+        return Array.from(this.list(query));
+    }
+    /**
+     * Return the first document matching the optional query, or `null`
+     * when no document matches.
+     * @param query - filter or `Query` object
+     * @returns first matching document or `null`
+     * @example
+     * ```ts
+     * const doc = bucket.one<{ _id: number }>(where('_id', { $eq: 1 }));
+     * ```
+     */
+    one(query) {
+        for (const doc of this.list(query)) {
+            return doc;
+        }
+        return null;
+    }
+    /**
      * Normalize a query argument to a plain object, unpacking
      * `Query` instances.
      * @example

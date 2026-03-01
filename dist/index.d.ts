@@ -137,6 +137,27 @@ export declare class Bucket {
      */
     list<T>(query?: object | Query): Generator<T>;
     /**
+     * Collect all documents matching the optional query into an array.
+     * @param query - filter or `Query` object
+     * @returns array of all matching documents
+     * @example
+     * ```ts
+     * const docs = bucket.all<{ name: string }>(where('name', { $exists: true }));
+     * ```
+     */
+    all<T>(query?: object | Query): Array<T>;
+    /**
+     * Return the first document matching the optional query, or `null`
+     * when no document matches.
+     * @param query - filter or `Query` object
+     * @returns first matching document or `null`
+     * @example
+     * ```ts
+     * const doc = bucket.one<{ _id: number }>(where('_id', { $eq: 1 }));
+     * ```
+     */
+    one<T>(query?: object | Query): T | null;
+    /**
      * Normalize a query argument to a plain object, unpacking
      * `Query` instances.
      * @example
