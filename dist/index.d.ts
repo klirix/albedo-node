@@ -1,14 +1,5 @@
 type ByteBuffer = Uint8Array;
-type BucketHandle = object;
-type ListIteratorHandle = object;
-type TransformIteratorHandle = object;
 interface IndexOptions {
-    unique: boolean;
-    sparse: boolean;
-    reverse: boolean;
-}
-interface IndexInfo {
-    name: string;
     unique: boolean;
     sparse: boolean;
     reverse: boolean;
@@ -21,32 +12,11 @@ interface ObjectIdConstructor {
     new (buffer?: ByteBuffer): ObjectIdInstance;
     fromString(str: string): ObjectIdInstance;
 }
-interface AlbedoModule {
-    ObjectId: ObjectIdConstructor;
-    serialize(value: unknown): Uint8Array;
-    deserialize<T = unknown>(data: ByteBuffer): T;
-    open(path: string): BucketHandle;
-    close(bucket: BucketHandle): void;
-    list(bucket: BucketHandle, query: object): ListIteratorHandle;
-    listClose(cursor: ListIteratorHandle): void;
-    listData(cursor: ListIteratorHandle): unknown | null;
-    insert(bucket: BucketHandle, doc: ByteBuffer | object): void;
-    ensureIndex(bucket: BucketHandle, name: string, options: IndexOptions): void;
-    listIndexes(bucket: BucketHandle): Record<string, IndexInfo>;
-    dropIndex(bucket: BucketHandle, name: string): void;
-    delete(bucket: BucketHandle, query: object): void;
-    transform(bucket: BucketHandle, query: object): TransformIteratorHandle;
-    transformClose(iter: TransformIteratorHandle): void;
-    transformData(iter: TransformIteratorHandle): unknown | null;
-    transformApply(iter: TransformIteratorHandle, replace: ByteBuffer | object | null): void;
-    setReplicationCallback(bucket: BucketHandle, callback: (data: Uint8Array) => void): void;
-    applyReplicationBatch(bucket: BucketHandle, data: ByteBuffer): void;
-}
-declare const albedo: AlbedoModule;
+export declare const albedo: any;
 export default albedo;
 export declare const BSON: {
-    serialize: (value: unknown) => Uint8Array;
-    deserialize: <T = unknown>(data: ByteBuffer) => T;
+    serialize: any;
+    deserialize: any;
 };
 /**
  * Native ObjectId class constructor.
@@ -135,7 +105,7 @@ export declare class Bucket {
      * console.log(bucket.indexes);
      * ```
      */
-    get indexes(): Record<string, IndexInfo>;
+    get indexes(): any;
     /**
      * Create or update an index on a field.
      * @param name - index name (field path)

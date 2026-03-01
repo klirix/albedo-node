@@ -1,16 +1,41 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Query = exports.Bucket = exports.ObjectId = exports.BSON = void 0;
+exports.Query = exports.Bucket = exports.ObjectId = exports.BSON = exports.albedo = void 0;
 exports.where = where;
-const platformSuffix = process.platform == "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
-const archSuffix = process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch;
-const isMusl = process.versions.libc && process.versions.libc.includes("musl");
-const libcSuffix = process.platform == "linux" ? (isMusl ? "_musl" : "_gnu") : "";
-const albedo = require(`../native/albedo.${archSuffix}_${platformSuffix}${libcSuffix}.node`);
-exports.default = albedo;
+const detect_libc_1 = require("detect-libc");
+function getNativeBinding() {
+    const platformMap = {
+        win32: "windows",
+        darwin: "macos",
+        linux: "linux",
+        aix: "",
+        android: "",
+        freebsd: "",
+        haiku: "",
+        openbsd: "",
+        sunos: "",
+        cygwin: "",
+        netbsd: "",
+    };
+    const archMap = {
+        x64: "x86_64",
+        arm64: "aarch64",
+    };
+    const platform = platformMap[process.platform] ?? process.platform;
+    const arch = archMap[process.arch] ?? process.arch;
+    let suffix = "";
+    if (platform === "linux") {
+        const libc = (0, detect_libc_1.familySync)(); // 'glibc' | 'musl' | null
+        suffix = libc === detect_libc_1.MUSL ? "_musl" : "_gnu";
+    }
+    const filename = `albedo.${arch}_${platform}${suffix}.node`;
+    return require(`../native/${filename}`); // or import() if you prefer ESM
+}
+exports.albedo = getNativeBinding();
+exports.default = exports.albedo;
 exports.BSON = {
-    serialize: albedo.serialize,
-    deserialize: albedo.deserialize,
+    serialize: exports.albedo.serialize,
+    deserialize: exports.albedo.deserialize,
 };
 /**
  * Native ObjectId class constructor.
@@ -21,7 +46,7 @@ exports.BSON = {
  * const parsed = ObjectId.fromString(id.toString());
  * ```
  */
-exports.ObjectId = albedo.ObjectId;
+exports.ObjectId = exports.albedo.ObjectId;
 /**
  * Wrapper around a native Albedo bucket handle providing
  * methods for CRUD operations, indexing, iteration, and
@@ -65,7 +90,7 @@ class Bucket {
      * ```
      */
     static open(path) {
-        const handle = albedo.open(path);
+        const handle = exports.albedo.open(path);
         return new Bucket(handle);
     }
     /**
@@ -76,7 +101,7 @@ class Bucket {
      * ```
      */
     close() {
-        albedo.close(this.handle);
+        exports.albedo.close(this.handle);
     }
     /**
      * Insert a document or raw byte buffer into the bucket.
@@ -87,7 +112,7 @@ class Bucket {
      * ```
      */
     insert(doc) {
-        albedo.insert(this.handle, doc);
+        exports.albedo.insert(this.handle, doc);
     }
     /**
      * Delete documents matching the query. If no query is provided,
@@ -101,7 +126,7 @@ class Bucket {
      * ```
      */
     delete(query) {
-        albedo.delete(this.handle, Bucket.convertToQuery(query));
+        exports.albedo.delete(this.handle, Bucket.convertToQuery(query));
     }
     /**
      * Retrieve information about all indexes defined on the bucket.
@@ -111,7 +136,7 @@ class Bucket {
      * ```
      */
     get indexes() {
-        return albedo.listIndexes(this.handle);
+        return exports.albedo.listIndexes(this.handle);
     }
     /**
      * Create or update an index on a field.
@@ -123,7 +148,7 @@ class Bucket {
      * ```
      */
     ensureIndex(name, options) {
-        albedo.ensureIndex(this.handle, name, options);
+        exports.albedo.ensureIndex(this.handle, name, options);
     }
     /**
      * Remove an index by name.
@@ -133,7 +158,7 @@ class Bucket {
      * ```
      */
     dropIndex(name) {
-        albedo.dropIndex(this.handle, name);
+        exports.albedo.dropIndex(this.handle, name);
     }
     /**
      * Iterate over documents matching the optional query.
@@ -147,15 +172,15 @@ class Bucket {
      * ```
      */
     *list(query) {
-        const cursor = albedo.list(this.handle, Bucket.convertToQuery(query));
+        const cursor = exports.albedo.list(this.handle, Bucket.convertToQuery(query));
         try {
             let data;
-            while ((data = albedo.listData(cursor)) !== null) {
+            while ((data = exports.albedo.listData(cursor)) !== null) {
                 yield data;
             }
         }
         finally {
-            albedo.listClose(cursor);
+            exports.albedo.listClose(cursor);
         }
     }
     /**
@@ -191,16 +216,16 @@ class Bucket {
      */
     *transformIterator(query) {
         const queryObj = Bucket.convertToQuery(query);
-        const iter = albedo.transform(this.handle, queryObj);
+        const iter = exports.albedo.transform(this.handle, queryObj);
         try {
             let data;
-            while ((data = albedo.transformData(iter)) !== undefined) {
+            while ((data = exports.albedo.transformData(iter)) !== undefined) {
                 const newDoc = yield data;
-                albedo.transformApply(iter, newDoc);
+                exports.albedo.transformApply(iter, newDoc);
             }
         }
         finally {
-            albedo.transformClose(iter);
+            exports.albedo.transformClose(iter);
         }
     }
     /**
@@ -223,15 +248,15 @@ class Bucket {
      */
     transform(query, fn) {
         const queryObj = Bucket.convertToQuery(query);
-        const iter = albedo.transform(this.handle, queryObj);
+        const iter = exports.albedo.transform(this.handle, queryObj);
         try {
             let data;
-            while ((data = albedo.transformData(iter)) !== undefined) {
-                albedo.transformApply(iter, fn(data));
+            while ((data = exports.albedo.transformData(iter)) !== undefined) {
+                exports.albedo.transformApply(iter, fn(data));
             }
         }
         finally {
-            albedo.transformClose(iter);
+            exports.albedo.transformClose(iter);
         }
     }
     /**
@@ -246,7 +271,7 @@ class Bucket {
      * ```
      */
     setReplicationCallback(callback) {
-        albedo.setReplicationCallback(this.handle, callback);
+        exports.albedo.setReplicationCallback(this.handle, callback);
     }
     /**
      * Apply a batch of replication operations to this bucket.
@@ -257,7 +282,7 @@ class Bucket {
      * ```
      */
     applyReplicationBatch(data) {
-        albedo.applyReplicationBatch(this.handle, data);
+        exports.albedo.applyReplicationBatch(this.handle, data);
     }
 }
 exports.Bucket = Bucket;

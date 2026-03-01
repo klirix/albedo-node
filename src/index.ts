@@ -54,15 +54,43 @@ interface AlbedoModule {
   ): void;
   applyReplicationBatch(bucket: BucketHandle, data: ByteBuffer): void;
 }
+import { familySync, MUSL } from "detect-libc";
 
-const platformSuffix = process.platform == "darwin" ? "macos" : process.platform === "win32" ? "windows" : process.platform;
-const archSuffix = process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : process.arch;
-const isMusl = process.versions.libc && process.versions.libc.includes("musl");
-const libcSuffix = process.platform == "linux" ? (isMusl ? "_musl" : "_gnu") : "";
+function getNativeBinding() {
+  const platformMap: Record<NodeJS.Platform, string> = {
+    win32: "windows",
+    darwin: "macos",
+    linux: "linux",
+    aix: "",
+    android: "",
+    freebsd: "",
+    haiku: "",
+    openbsd: "",
+    sunos: "",
+    cygwin: "",
+    netbsd: "",
+  };
 
-const albedo = require(
-  `../native/albedo.${archSuffix}_${platformSuffix}${libcSuffix}.node`,
-) as AlbedoModule;
+  const archMap: Record<string, string> = {
+    x64: "x86_64",
+    arm64: "aarch64",
+  };
+
+  const platform =
+    platformMap[process.platform as NodeJS.Platform] ?? process.platform;
+  const arch = archMap[process.arch] ?? process.arch;
+
+  let suffix = "";
+  if (platform === "linux") {
+    const libc = familySync(); // 'glibc' | 'musl' | null
+    suffix = libc === MUSL ? "_musl" : "_gnu";
+  }
+
+  const filename = `albedo.${arch}_${platform}${suffix}.node`;
+  return require(`../native/${filename}`); // or import() if you prefer ESM
+}
+
+export const albedo = getNativeBinding();
 
 export default albedo;
 
@@ -340,7 +368,8 @@ export class Bucket {
 type BSONValue = any;
 
 type FilterOperators =
-  | { $eq: BSONValue } | BSONValue // shorthand for equality
+  | { $eq: BSONValue }
+  | BSONValue // shorthand for equality
   | { $ne: BSONValue }
   | { $lt: BSONValue }
   | { $lte: BSONValue }
@@ -351,7 +380,7 @@ type FilterOperators =
   | { $startsWith: string }
   | { $endsWith: string }
   | { $exists: boolean }
-  | { $notExists: boolean }
+  | { $notExists: boolean };
 
 type QueryObject = {
   /** field path → filter */
