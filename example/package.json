@@ -10,6 +10,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "albedo-node": "0.5.90"
+    "albedo-node": "0.5.91"
   }
 }

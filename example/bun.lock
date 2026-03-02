@@ -5,7 +5,7 @@
     "": {
       "name": "example",
       "dependencies": {
-        "albedo-node": "0.5.90",
+        "albedo-node": "0.5.91",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -20,9 +20,11 @@
 
     "@types/node": ["@types/node@24.10.13", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-oH72nZRfDv9lADUBSo104Aq7gPHpQZc4BTx38r9xf9pg5LfP6EzSyH2n7qFmmxRQXh7YlUXODcYsg6PuTDSxGg=="],
 
-    "albedo-node": ["albedo-node@0.5.90", "", {}, "sha512-YoKDQ/tJSv+YF4zaEby2pqHrRQjKPXDXkAVwt2kX00d/dTz2ZigPLvJcBt3yVNu207+k4woxAWSe3ofLiRedXA=="],
+    "albedo-node": ["albedo-node@0.5.91", "", { "dependencies": { "detect-libc": "^2.1.2" } }, "sha512-jjb4t9jKi3COnLnoc94ABnoHB24hVcsB5bdLWqlaYjI2I4kGSxpAnVP7PYkCnAoB3vuHtC1EqbRfgZiQBgihzA=="],
 
     "bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
+
+    "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
