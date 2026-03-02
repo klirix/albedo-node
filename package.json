@@ -1,6 +1,6 @@
 {
   "name": "albedo-node",
-  "version": "0.5.90",
+  "version": "0.5.91",
   "description": "High-performance embedded database for Node.js with native bindings, BSON support, indexing, and replication",
   "keywords": [
     "albedo",
