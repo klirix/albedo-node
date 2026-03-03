@@ -18,7 +18,7 @@ fn getObjectIdConstructor(js: *ng.JsContext) ng.Error!napi_value {
 
 // Takes a JavaScript object and returns a Uint8Array of BSON data.
 pub fn serialize(js: *ng.JsContext, jsObject: napi_value) !napi_value {
-    const doc = try jsObjectToBsonDoc(js, jsObject);
+    const doc = try jsObjectToBsonDoc(js, jsObject, null);
     var buffer: napi_value = undefined;
     var uint8arr: napi_value = undefined;
     var data_ptr: ?*anyopaque = null;
@@ -29,11 +29,11 @@ pub fn serialize(js: *ng.JsContext, jsObject: napi_value) !napi_value {
     return uint8arr;
 }
 
-pub fn jsObjectToBsonDoc(js: *ng.JsContext, jsObject: napi_value) ng.Error!albedo.BSONDocument {
+pub fn jsObjectToBsonDoc(js: *ng.JsContext, jsObject: napi_value, allocator: ?std.mem.Allocator) ng.Error!albedo.BSONDocument {
     var propertyNames: napi_value = undefined;
     try ng.check(napi.napi_get_property_names(js.env, jsObject, &propertyNames));
     const length = try js.getArrayLength(propertyNames);
-    const ally = js.arena.allocator();
+    const ally = allocator orelse js.arena.allocator();
     const keypairs = try ally.alloc(bson.BSONKeyValuePair, length);
 
     defer ally.free(keypairs);
@@ -45,13 +45,13 @@ pub fn jsObjectToBsonDoc(js: *ng.JsContext, jsObject: napi_value) ng.Error!albed
         defer ally.free(keySentinel);
         @memcpy(keySentinel[0..keyStr.len], keyStr);
         const jsValue = try js.getNamedProperty(jsObject, keySentinel);
-        const value = try jsValueToBsonValue(js, jsValue);
+        const value = try jsValueToBsonValue(js, jsValue, ally);
         keypairs[i] = bson.BSONKeyValuePair{ .key = keyStr, .value = value };
     }
     return try bson.BSONDocument.fromPairs(ally, keypairs);
 }
 
-fn jsValueToBsonValue(js: *ng.JsContext, value: napi_value) !albedo.BSONValue {
+fn jsValueToBsonValue(js: *ng.JsContext, value: napi_value, allocator: std.mem.Allocator) !albedo.BSONValue {
     const valueType = try js.typeOf(value);
     return switch (valueType) {
         napi.napi_number => {
@@ -70,7 +70,7 @@ fn jsValueToBsonValue(js: *ng.JsContext, value: napi_value) !albedo.BSONValue {
             var is_array: bool = false;
             try ng.check(napi.napi_is_array(js.env, value, &is_array));
             if (is_array) {
-                const arr_doc = try jsObjectToBsonDoc(js, value);
+                const arr_doc = try jsObjectToBsonDoc(js, value, allocator);
                 return albedo.BSONValue{ .array = arr_doc };
             }
 
@@ -143,15 +143,14 @@ fn jsValueToBsonValue(js: *ng.JsContext, value: napi_value) !albedo.BSONValue {
                 const ptr = @as([*]const u8, @ptrCast(data_ptr.?));
                 const source_bytes = ptr[0..byte_len];
 
-                // Copy bytes to arena-allocated memory to ensure proper lifetime
-                const ally = js.arena.allocator();
-                const bytes = try ally.alloc(u8, byte_len);
+                // Copy bytes to allocator-allocated memory to ensure proper lifetime
+                const bytes = try allocator.alloc(u8, byte_len);
                 @memcpy(bytes, source_bytes);
 
                 return albedo.BSONValue{ .binary = .{ .value = bytes, .subtype = 0x00 } };
             }
 
-            const nested_doc = try jsObjectToBsonDoc(js, value);
+            const nested_doc = try jsObjectToBsonDoc(js, value, allocator);
             return albedo.BSONValue{ .document = nested_doc };
         },
         napi.napi_null => albedo.BSONValue{ .null = .{} },

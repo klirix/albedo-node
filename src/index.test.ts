@@ -143,6 +143,41 @@ describe('Albedo — major functionality', () => {
         await Bun.file(db).delete();
     });
 
+    test("Bucket.stream returns a listenable stream of docs", async () => {
+        const db = "test-stream.bucket";
+        const bucket = Bucket.open(db, {
+            wal: true,
+            write_durability: "all"
+        });
+        const listener = bucket.stream(where("name", { $eq: "Stream" }), {
+          pollingTimeout: 50,
+        });
+
+        const received: any[] = [];
+        const promise = (async () => {
+            for await (const doc of listener) {
+                received.push(doc);
+                if (received.length === 2) break; // stop after 2 docs
+            }
+        })();
+
+        bucket.insert({ name: "Stream", id: 1 });
+        await new Promise(resolve => setTimeout(resolve, 100)); // wait for the stream to pick up the first doc
+        bucket.transform(where("name", { $eq: "Stream" }), (doc: any) => ({ ...doc, id: 2 })); // update the doc to trigger another stream event
+        // console.log("Inserted and updated docs, waiting for stream...", bucket.all(where("bame", { $eq: "Stream" })));
+        // await new Promise((resolve) => setTimeout(resolve, 100));
+
+        await promise;
+
+        bucket.close();
+        await Bun.file(db).delete();
+
+        expect(received).toEqual([
+            { name: "Stream", id: 1, _id: expect.anything() },
+            { name: "Stream", id: 2, _id: expect.anything() },
+        ]);
+    });
+
     test('Bucket.transform can be used with query builder', async () => {
         const db = 'test-transform-builder.db';
         const bucket = Bucket.open(db);

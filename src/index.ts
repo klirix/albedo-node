@@ -27,11 +27,40 @@ interface ObjectIdConstructor {
   fromString(str: string): ObjectIdInstance;
 }
 
+/**
+ * Controls when fsync is called to guarantee write durability.
+ */
+type WriteDurability =
+  | "all" // Every write is fsynced immediately (safest, slowest)
+  | { periodic: number } // Fsync every N page writes (balanced)
+  | "manual"; // Never fsync automatically; rely on OS page cache
+
+/**
+ * Controls how page reads interact with the WAL.
+ */
+type ReadDurability =
+  | "shared" // Always consult WAL (safe for multi-process readers)
+  | "process"; // Trust local cache, WAL only on miss (fast single-process)
+
+/**
+ * Options for opening a bucket.
+ */
+interface OpenBucketOptions {
+  buildIdIndex?: boolean;
+  mode?: string; // BucketFileMode
+  auto_vaccuum?: boolean;
+  page_cache_capacity?: number;
+  wal?: boolean;
+  write_durability?: WriteDurability;
+  read_durability?: ReadDurability;
+}
+
 interface AlbedoModule {
   ObjectId: ObjectIdConstructor;
   serialize(value: unknown): Uint8Array;
   deserialize<T = unknown>(data: ByteBuffer): T;
   open(path: string): BucketHandle;
+  open(path: string, options: OpenBucketOptions): BucketHandle;
   close(bucket: BucketHandle): void;
   list(bucket: BucketHandle, query: object): ListIteratorHandle;
   listClose(cursor: ListIteratorHandle): void;
@@ -154,8 +183,8 @@ export class Bucket {
    * const bucket = Bucket.open('data.db');
    * ```
    */
-  static open(path: string): Bucket {
-    const handle = albedo.open(path);
+  static open(path: string, options?: OpenBucketOptions): Bucket {
+    const handle = options ? albedo.open_with_options(path, options) : albedo.open(path);
     return new Bucket(handle);
   }
 
@@ -256,6 +285,47 @@ export class Bucket {
   }
 
   /**
+   * Async iterator that continuously polls for documents matching the
+   * optional query. Unlike `list`, when there are no more results the
+   * iterator waits for `pollingTimeout` milliseconds and retries,
+   * making it suitable for watching a bucket for new data.
+   *
+   * The native cursor is closed automatically when the consumer breaks
+   * out of the loop or the iterator is otherwise disposed.
+   *
+   * @param query - filter or `Query` object
+   * @param options - polling configuration
+   * @param options.pollingTimeout - ms to wait before retrying when
+   *   `listData` returns `null` (default `50`)
+   * @yields each document deserialized from the bucket
+   * @example
+   * ```ts
+   * for await (const user of bucket.stream<User>(where('active', { $eq: true }))) {
+   *   console.log(user);
+   * }
+   * ```
+   */
+  async *stream<T>(
+    query?: object | Query,
+    options?: { pollingTimeout?: number },
+  ): AsyncGenerator<T> {
+    const pollingTimeout = options?.pollingTimeout ?? 50;
+    const cursor = albedo.list(this.handle, Bucket.convertToQuery(query));
+    try {
+      while (true) {
+        const data = albedo.listData(cursor);
+        if (data !== null) {
+          yield data as T;
+        } else {
+          await new Promise((r) => setTimeout(r, pollingTimeout));
+        }
+      }
+    } finally {
+      albedo.listClose(cursor);
+    }
+  }
+
+  /**
    * Collect all documents matching the optional query into an array.
    * @param query - filter or `Query` object
    * @returns array of all matching documents
@@ -284,6 +354,8 @@ export class Bucket {
     }
     return null;
   }
+
+
 
   /**
    * Normalize a query argument to a plain object, unpacking

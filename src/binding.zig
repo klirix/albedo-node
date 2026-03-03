@@ -127,6 +127,14 @@ fn open(path: []const u8) !*albedo.Bucket {
     return bucket;
 }
 
+fn open_with_options(js: *napigen.JsContext, path: []const u8, optionsBuf: napigen.napi_value) !*albedo.Bucket {
+    const bucket = try ally.create(albedo.Bucket);
+    const doc = try bson.jsObjectToBsonDoc(js, optionsBuf, ally);
+    const options = try albedo.bson.fmt.parse(albedo.Bucket.OpenBucketOptions, doc, ally);
+    bucket.* = try albedo.Bucket.openFileWithOptions(ally, path, options.value);
+    return bucket;
+}
+
 fn close(bucket: *albedo.Bucket) void {
     bucket.deinit();
     bucket.allocator.destroy(bucket);
@@ -185,7 +193,7 @@ fn list(js: *napigen.JsContext, bucket: *albedo.Bucket, queryBuf: napigen.napi_v
             const js_bytes = try getTypedArraySlice(js, queryBuf);
             break :blk albedo.BSONDocument{ .buffer = js_bytes };
         } else if (try js.typeOf(queryBuf) == napigen.napi.napi_object) {
-            const doc = try bson.jsObjectToBsonDoc(js, queryBuf);
+            const doc = try bson.jsObjectToBsonDoc(js, queryBuf, arena.allocator());
             break :blk doc;
         } else {
             arena.deinit();
@@ -218,7 +226,7 @@ fn insert(js: *napigen.JsContext, bucket: *albedo.Bucket, docBuf: napigen.napi_v
         const doc = albedo.BSONDocument{ .buffer = js_bytes };
         _ = try bucket.insert(doc);
     } else if (try js.typeOf(docBuf) == napigen.napi.napi_object) {
-        const doc = try bson.jsObjectToBsonDoc(js, docBuf);
+        const doc = try bson.jsObjectToBsonDoc(js, docBuf, ally);
         _ = try bucket.insert(doc);
     } else {
         return error.InvalidDocument;
@@ -266,7 +274,7 @@ fn delete(js: *napigen.JsContext, bucket: *albedo.Bucket, queryObj: napigen.napi
     var arena = std.heap.ArenaAllocator.init(ally);
     const arena_ally = arena.allocator();
 
-    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj);
+    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj, arena_ally);
     var query = albedo.Query.parse(arena_ally, queryDoc) catch {
         arena.deinit();
         return error.InvalidQuery;
@@ -280,7 +288,7 @@ fn transform(js: *napigen.JsContext, bucket: *albedo.Bucket, queryObj: napigen.n
     const arena = try ally.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(ally);
 
-    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj);
+    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj, arena.allocator());
     const query = try albedo.Query.parse(arena.allocator(), queryDoc);
 
     return try bucket.transformIterate(arena, query);
@@ -305,7 +313,7 @@ fn transformApply(js: *napigen.JsContext, iter: *albedo.Bucket.TransformIterator
             break :blk &albedo.BSONDocument.init(js_bytes);
         }
         if (try js.typeOf(replaceBuffer) == napigen.napi.napi_object) {
-            const doc = try bson.jsObjectToBsonDoc(js, replaceBuffer);
+            const doc = try bson.jsObjectToBsonDoc(js, replaceBuffer, iter.arena.allocator());
             break :blk &doc;
         }
         return error.InvalidDocument;
@@ -376,6 +384,7 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napi
     try js.setNamedProperty(exports, "serialize", try js.createNamedFunction("serialize", bson.serialize));
     try js.setNamedProperty(exports, "deserialize", try js.createNamedFunction("deserialize", bson.deserialize));
     try js.setNamedProperty(exports, "open", try js.createFunction(open));
+    try js.setNamedProperty(exports, "open_with_options", try js.createFunction(open_with_options));
     try js.setNamedProperty(exports, "close", try js.createFunction(close));
     try js.setNamedProperty(exports, "list", try js.createFunction(list));
     try js.setNamedProperty(exports, "listClose", try js.createFunction(listClose));

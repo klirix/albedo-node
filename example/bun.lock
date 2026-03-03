@@ -5,7 +5,7 @@
     "": {
       "name": "example",
       "dependencies": {
-        "albedo-node": "0.5.91",
+        "albedo-node": "0.6.0",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -20,7 +20,7 @@
 
     "@types/node": ["@types/node@24.10.13", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-oH72nZRfDv9lADUBSo104Aq7gPHpQZc4BTx38r9xf9pg5LfP6EzSyH2n7qFmmxRQXh7YlUXODcYsg6PuTDSxGg=="],
 
-    "albedo-node": ["albedo-node@0.5.91", "", { "dependencies": { "detect-libc": "^2.1.2" } }, "sha512-jjb4t9jKi3COnLnoc94ABnoHB24hVcsB5bdLWqlaYjI2I4kGSxpAnVP7PYkCnAoB3vuHtC1EqbRfgZiQBgihzA=="],
+    "albedo-node": ["albedo-node@0.6.0", "", { "dependencies": { "detect-libc": "^2.1.2" } }, "sha512-cQP73wEEM9ObzCPbWsh5lCeQrCTqgTvUB2ugDBJCOezWEML6aig5r5673qYzxKDpWOgVnvvmxmUrYnOHQp03Ow=="],
 
     "bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
 

@@ -12,6 +12,28 @@ interface ObjectIdConstructor {
     new (buffer?: ByteBuffer): ObjectIdInstance;
     fromString(str: string): ObjectIdInstance;
 }
+/**
+ * Controls when fsync is called to guarantee write durability.
+ */
+type WriteDurability = "all" | {
+    periodic: number;
+} | "manual";
+/**
+ * Controls how page reads interact with the WAL.
+ */
+type ReadDurability = "shared" | "process";
+/**
+ * Options for opening a bucket.
+ */
+interface OpenBucketOptions {
+    buildIdIndex?: boolean;
+    mode?: string;
+    auto_vaccuum?: boolean;
+    page_cache_capacity?: number;
+    wal?: boolean;
+    write_durability?: WriteDurability;
+    read_durability?: ReadDurability;
+}
 export declare const albedo: any;
 export default albedo;
 export declare const BSON: {
@@ -68,7 +90,7 @@ export declare class Bucket {
      * const bucket = Bucket.open('data.db');
      * ```
      */
-    static open(path: string): Bucket;
+    static open(path: string, options?: OpenBucketOptions): Bucket;
     /**
      * Close the bucket and release native resources.
      * @example
@@ -136,6 +158,30 @@ export declare class Bucket {
      * ```
      */
     list<T>(query?: object | Query): Generator<T>;
+    /**
+     * Async iterator that continuously polls for documents matching the
+     * optional query. Unlike `list`, when there are no more results the
+     * iterator waits for `pollingTimeout` milliseconds and retries,
+     * making it suitable for watching a bucket for new data.
+     *
+     * The native cursor is closed automatically when the consumer breaks
+     * out of the loop or the iterator is otherwise disposed.
+     *
+     * @param query - filter or `Query` object
+     * @param options - polling configuration
+     * @param options.pollingTimeout - ms to wait before retrying when
+     *   `listData` returns `null` (default `50`)
+     * @yields each document deserialized from the bucket
+     * @example
+     * ```ts
+     * for await (const user of bucket.stream<User>(where('active', { $eq: true }))) {
+     *   console.log(user);
+     * }
+     * ```
+     */
+    stream<T>(query?: object | Query, options?: {
+        pollingTimeout?: number;
+    }): AsyncGenerator<T>;
     /**
      * Collect all documents matching the optional query into an array.
      * @param query - filter or `Query` object

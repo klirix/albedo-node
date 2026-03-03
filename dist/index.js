@@ -89,8 +89,8 @@ class Bucket {
      * const bucket = Bucket.open('data.db');
      * ```
      */
-    static open(path) {
-        const handle = exports.albedo.open(path);
+    static open(path, options) {
+        const handle = options ? exports.albedo.open_with_options(path, options) : exports.albedo.open(path);
         return new Bucket(handle);
     }
     /**
@@ -177,6 +177,45 @@ class Bucket {
             let data;
             while ((data = exports.albedo.listData(cursor)) !== null) {
                 yield data;
+            }
+        }
+        finally {
+            exports.albedo.listClose(cursor);
+        }
+    }
+    /**
+     * Async iterator that continuously polls for documents matching the
+     * optional query. Unlike `list`, when there are no more results the
+     * iterator waits for `pollingTimeout` milliseconds and retries,
+     * making it suitable for watching a bucket for new data.
+     *
+     * The native cursor is closed automatically when the consumer breaks
+     * out of the loop or the iterator is otherwise disposed.
+     *
+     * @param query - filter or `Query` object
+     * @param options - polling configuration
+     * @param options.pollingTimeout - ms to wait before retrying when
+     *   `listData` returns `null` (default `50`)
+     * @yields each document deserialized from the bucket
+     * @example
+     * ```ts
+     * for await (const user of bucket.stream<User>(where('active', { $eq: true }))) {
+     *   console.log(user);
+     * }
+     * ```
+     */
+    async *stream(query, options) {
+        const pollingTimeout = options?.pollingTimeout ?? 50;
+        const cursor = exports.albedo.list(this.handle, Bucket.convertToQuery(query));
+        try {
+            while (true) {
+                const data = exports.albedo.listData(cursor);
+                if (data !== null) {
+                    yield data;
+                }
+                else {
+                    await new Promise((r) => setTimeout(r, pollingTimeout));
+                }
             }
         }
         finally {

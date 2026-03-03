@@ -80,10 +80,9 @@ console.timeEnd("Query scan x 100");
 console.time("Query index x 100");
 for (let i = 0; i < 100; i++) {
   bucket
-    .list(
-      where("_id", { $eq: Math.floor(Math.random() * docNum) }).sector(0, 100),
+    .one(
+      where("_id", { $eq: Math.floor(Math.random() * docNum) }).sector(0, 100)
     )
-    .next();
 }
 console.timeEnd("Query index x 100");
 
