@@ -33,8 +33,8 @@
     // internet connectivity.
     .dependencies = .{
         .Albedo = .{
-            .url = "git+https://github.com/klirix/albedo?ref=main#471057bf5bd395148c37ec71af996bb7a5ff4bd0",
-            .hash = "Albedo-0.6.0-BBOn1d0EBwBfjp3GUmCHmMvq295IkmpQhZb5iEpCNEdA",
+            .url = "git+https://github.com/klirix/albedo?ref=main#cc2867d58f60fab7a40ee0f61b4d3642775c5687",
+            .hash = "Albedo-0.6.2-BBOn1desBwBze62vW9SiQaVDWOEpe1sgpuToWwLSgfmC",
         },
         .napigen = .{
             .url = "git+https://github.com/cztomsik/napigen?ref=main#bc2c8259d95be774847e60fce9bfc203ab623b30",
