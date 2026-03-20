@@ -215,7 +215,7 @@ fn listData(js: *napigen.JsContext, cursor: *albedo.Bucket.ListIterator) !napige
     const doc = try cursor.next(cursor);
     if (doc == null) return js.null();
 
-    return try bson.bsonDocToJsObject(js, doc.?);
+    return try bson.bsonDocToJsObject(js, doc.?, false);
 }
 
 fn insert(js: *napigen.JsContext, bucket: *albedo.Bucket, docBuf: napigen.napi_value) !void {
@@ -298,7 +298,7 @@ fn transformData(js: *napigen.JsContext, iter: *albedo.Bucket.TransformIterator)
     const result = try iter.data();
     if (result == null) return null;
 
-    return try bson.bsonDocToJsObject(js, result.?);
+    return try bson.bsonDocToJsObject(js, result.?, false);
 }
 
 fn transformApply(js: *napigen.JsContext, iter: *albedo.Bucket.TransformIterator, replaceBuffer: napigen.napi_value) !void {

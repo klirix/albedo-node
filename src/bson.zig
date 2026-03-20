@@ -168,10 +168,10 @@ pub fn deserialize(js: *ng.JsContext, uint8arr: napi_value) !napi_value {
     const ptr = @as([*]const u8, @ptrCast(data_ptr.?));
     const docBuffer: []const u8 = ptr[0..size];
     const doc = albedo.BSONDocument.init(docBuffer);
-    return bsonDocToJsObject(js, doc);
+    return bsonDocToJsObject(js, doc, false);
 }
 
-pub fn bsonDocToJsObject(js: *ng.JsContext, doc: albedo.BSONDocument) ng.Error!napi_value {
+pub fn bsonDocToJsObject(js: *ng.JsContext, doc: albedo.BSONDocument, asArray: bool) ng.Error!napi_value {
     // Check if this is actually an array (keys are "0", "1", "2", ...)
     var pairIter = doc.iter();
     var isArray = true;
@@ -191,7 +191,8 @@ pub fn bsonDocToJsObject(js: *ng.JsContext, doc: albedo.BSONDocument) ng.Error!n
         count += 1;
     }
 
-    if (isArray and count > 0) {
+    const treatAsArray = asArray or (isArray and count > 0);
+    if (treatAsArray) {
         // Create JavaScript array
         const arr = try js.createArray();
         pairIter = doc.iter();
@@ -276,8 +277,8 @@ fn bsonValueToJsValue(js: *ng.JsContext, value: albedo.BSONValue) ng.Error!napi_
         },
         .null => try js.null(),
         .boolean => |v| try js.createBoolean(v.value),
-        .array => try bsonDocToJsObject(js, value.array),
-        .document => try bsonDocToJsObject(js, value.document),
+        .array => try bsonDocToJsObject(js, value.array, true),
+        .document => try bsonDocToJsObject(js, value.document, false),
         .binary => |v| blk: {
             if (v.subtype == 0x07 and v.value.len == 12) {
                 break :blk try createObjectIdInstance(js, v.value);
