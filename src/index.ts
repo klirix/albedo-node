@@ -3,6 +3,7 @@ type ByteBuffer = Uint8Array;
 type BucketHandle = object;
 type ListIteratorHandle = object;
 type TransformIteratorHandle = object;
+type SubscriptionHandle = object;
 
 interface IndexOptions {
   unique: boolean;
@@ -25,6 +26,23 @@ interface ObjectIdInstance {
 interface ObjectIdConstructor {
   new (buffer?: ByteBuffer): ObjectIdInstance;
   fromString(str: string): ObjectIdInstance;
+}
+
+export interface SubscriptionEvent<T = unknown> {
+  seqno: bigint;
+  op: "insert" | "update" | "delete";
+  doc_id: ObjectIdInstance;
+  ts: bigint;
+  doc?: T;
+}
+
+interface SubscriptionBatch<T = unknown> {
+  batch: Array<SubscriptionEvent<T>>;
+}
+
+export interface SubscribeOptions {
+  pollingTimeout?: number;
+  batchSize?: number;
 }
 
 /**
@@ -60,7 +78,7 @@ interface AlbedoModule {
   serialize(value: unknown): Uint8Array;
   deserialize<T = unknown>(data: ByteBuffer): T;
   open(path: string): BucketHandle;
-  open(path: string, options: OpenBucketOptions): BucketHandle;
+  open_with_options(path: string, options: OpenBucketOptions): BucketHandle;
   close(bucket: BucketHandle): void;
   list(bucket: BucketHandle, query: object): ListIteratorHandle;
   listClose(cursor: ListIteratorHandle): void;
@@ -77,6 +95,12 @@ interface AlbedoModule {
     iter: TransformIteratorHandle,
     replace: ByteBuffer | object | null,
   ): void;
+  subscribe(bucket: BucketHandle, query: object): SubscriptionHandle;
+  subscribePoll<T = unknown>(
+    sub: SubscriptionHandle,
+    maxEvents: number,
+  ): SubscriptionBatch<T> | null;
+  subscribeClose(sub: SubscriptionHandle): void;
   setReplicationCallback(
     bucket: BucketHandle,
     callback: (data: Uint8Array) => void,
@@ -119,7 +143,7 @@ function getNativeBinding() {
   return require(`../native/${filename}`); // or import() if you prefer ESM
 }
 
-export const albedo = getNativeBinding();
+export const albedo: AlbedoModule = getNativeBinding();
 
 export default albedo;
 
@@ -285,43 +309,48 @@ export class Bucket {
   }
 
   /**
-   * Async iterator that continuously polls for documents matching the
-   * optional query. Unlike `list`, when there are no more results the
-   * iterator waits for `pollingTimeout` milliseconds and retries,
-   * making it suitable for watching a bucket for new data.
+   * Async iterator that continuously polls a change subscription.
    *
-   * The native cursor is closed automatically when the consumer breaks
-   * out of the loop or the iterator is otherwise disposed.
+   * The generator yields individual oplog events rather than rescanned
+   * documents, and automatically closes the native subscription when the
+   * consumer stops iterating.
    *
    * @param query - filter or `Query` object
    * @param options - polling configuration
-   * @param options.pollingTimeout - ms to wait before retrying when
-   *   `listData` returns `null` (default `50`)
-   * @yields each document deserialized from the bucket
+   * @param options.pollingTimeout - ms to wait before retrying when the
+   *   subscription is idle (default `50`)
+   * @param options.batchSize - maximum number of change events to pull per
+   *   native poll (default `64`)
    * @example
    * ```ts
-   * for await (const user of bucket.stream<User>(where('active', { $eq: true }))) {
-   *   console.log(user);
+   * for await (const event of bucket.subscribe<User>(where('active', { $eq: true }))) {
+   *   console.log(event.op, event.doc);
    * }
    * ```
    */
-  async *stream<T>(
+  async *subscribe<T>(
     query?: object | Query,
-    options?: { pollingTimeout?: number },
-  ): AsyncGenerator<T> {
+    options?: SubscribeOptions,
+  ): AsyncGenerator<SubscriptionEvent<T>> {
     const pollingTimeout = options?.pollingTimeout ?? 50;
-    const cursor = albedo.list(this.handle, Bucket.convertToQuery(query));
+    const batchSize = options?.batchSize ?? 64;
+    const subscription = albedo.subscribe(
+      this.handle,
+      Bucket.convertToQuery(query),
+    );
     try {
       while (true) {
-        const data = albedo.listData(cursor);
-        if (data !== null) {
-          yield data as T;
+        const batch = albedo.subscribePoll<T>(subscription, batchSize);
+        if (batch !== null) {
+          for (const event of batch.batch) {
+            yield event;
+          }
         } else {
           await new Promise((r) => setTimeout(r, pollingTimeout));
         }
       }
     } finally {
-      albedo.listClose(cursor);
+      albedo.subscribeClose(subscription);
     }
   }
 

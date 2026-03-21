@@ -184,34 +184,36 @@ class Bucket {
         }
     }
     /**
-     * Async iterator that continuously polls for documents matching the
-     * optional query. Unlike `list`, when there are no more results the
-     * iterator waits for `pollingTimeout` milliseconds and retries,
-     * making it suitable for watching a bucket for new data.
+     * Async iterator that continuously polls a change subscription.
      *
-     * The native cursor is closed automatically when the consumer breaks
-     * out of the loop or the iterator is otherwise disposed.
+     * The generator yields individual oplog events rather than rescanned
+     * documents, and automatically closes the native subscription when the
+     * consumer stops iterating.
      *
      * @param query - filter or `Query` object
      * @param options - polling configuration
-     * @param options.pollingTimeout - ms to wait before retrying when
-     *   `listData` returns `null` (default `50`)
-     * @yields each document deserialized from the bucket
+     * @param options.pollingTimeout - ms to wait before retrying when the
+     *   subscription is idle (default `50`)
+     * @param options.batchSize - maximum number of change events to pull per
+     *   native poll (default `64`)
      * @example
      * ```ts
-     * for await (const user of bucket.stream<User>(where('active', { $eq: true }))) {
-     *   console.log(user);
+     * for await (const event of bucket.subscribe<User>(where('active', { $eq: true }))) {
+     *   console.log(event.op, event.doc);
      * }
      * ```
      */
-    async *stream(query, options) {
+    async *subscribe(query, options) {
         const pollingTimeout = options?.pollingTimeout ?? 50;
-        const cursor = exports.albedo.list(this.handle, Bucket.convertToQuery(query));
+        const batchSize = options?.batchSize ?? 64;
+        const subscription = exports.albedo.subscribe(this.handle, Bucket.convertToQuery(query));
         try {
             while (true) {
-                const data = exports.albedo.listData(cursor);
-                if (data !== null) {
-                    yield data;
+                const batch = exports.albedo.subscribePoll(subscription, batchSize);
+                if (batch !== null) {
+                    for (const event of batch.batch) {
+                        yield event;
+                    }
                 }
                 else {
                     await new Promise((r) => setTimeout(r, pollingTimeout));
@@ -219,7 +221,7 @@ class Bucket {
             }
         }
         finally {
-            exports.albedo.listClose(cursor);
+            exports.albedo.subscribeClose(subscription);
         }
     }
     /**

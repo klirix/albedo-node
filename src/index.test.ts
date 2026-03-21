@@ -143,27 +143,27 @@ describe('Albedo — major functionality', () => {
         await Bun.file(db).delete();
     });
 
-    test("Bucket.stream returns a listenable stream of docs", async () => {
-        const db = "test-stream.bucket";
+    test("Bucket.subscribe returns a listenable change stream", async () => {
+        const db = "test-subscribe.bucket";
         const bucket = Bucket.open(db, {
             wal: true,
             write_durability: "all"
         });
-        const listener = bucket.stream(where("name", { $eq: "Stream" }), {
+        const listener = bucket.subscribe<{ name: string; id: number }>(where("name", { $eq: "Stream" }), {
           pollingTimeout: 50,
         });
 
         const received: any[] = [];
         const promise = (async () => {
-            for await (const doc of listener) {
-                received.push(doc);
+            for await (const event of listener) {
+                received.push(event);
                 if (received.length === 2) break; // stop after 2 docs
             }
         })();
 
-        bucket.insert({ name: "Stream", id: 1 });
+        bucket.insert({ name: "Stream", _id: 1 });
         await new Promise(resolve => setTimeout(resolve, 100)); // wait for the stream to pick up the first doc
-        bucket.transform(where("name", { $eq: "Stream" }), (doc: any) => ({ ...doc, id: 2 })); // update the doc to trigger another stream event
+        bucket.transform(where("name", { $eq: "Stream" }), (doc: any) => ({ ...doc, _id: 2 })); // update the doc to trigger another stream event
         // console.log("Inserted and updated docs, waiting for stream...", bucket.all(where("bame", { $eq: "Stream" })));
         // await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -172,10 +172,24 @@ describe('Albedo — major functionality', () => {
         bucket.close();
         await Bun.file(db).delete();
 
-        expect(received).toEqual([
-            { name: "Stream", id: 1, _id: expect.anything() },
-            { name: "Stream", id: 2, _id: expect.anything() },
-        ]);
+        console.log("Received stream events:",received[0]);
+
+        expect(received).toHaveLength(2);
+        expect(received[0]).toMatchObject({
+            op: "insert",
+            doc_id: expect.anything(),
+            doc: { name: "Stream", id: 1, _id: expect.anything() },
+        });
+        expect(received[1]).toMatchObject({
+            op: "update",
+            doc_id: expect.anything(),
+            doc: { name: "Stream", id: 2, _id: expect.anything() },
+        });
+        expect(typeof received[0].seqno).toBe("bigint");
+        expect(typeof received[1].seqno).toBe("bigint");
+        expect(typeof received[0].ts).toBe("bigint");
+        expect(typeof received[1].ts).toBe("bigint");
+        expect(received[0].seqno < received[1].seqno).toBe(true);
     });
 
     test('Bucket.transform can be used with query builder', async () => {

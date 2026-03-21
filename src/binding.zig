@@ -326,6 +326,43 @@ fn transformClose(iter: *albedo.Bucket.TransformIterator) !void {
     try iter.close();
 }
 
+fn subscribe(js: *napigen.JsContext, bucket: *albedo.Bucket, queryBuf: napigen.napi_value) !*albedo.Bucket.Subscription {
+    var owned_doc: ?albedo.BSONDocument = null;
+    defer if (owned_doc) |doc| doc.deinit(ally);
+
+    const queryDoc = blk: {
+        var is_typed_array = false;
+        try napigen.check(napigen.napi.napi_is_typedarray(js.env, queryBuf, &is_typed_array));
+        if (is_typed_array) {
+            const js_bytes = try getTypedArraySlice(js, queryBuf);
+            break :blk albedo.BSONDocument{ .buffer = js_bytes };
+        } else if (try js.typeOf(queryBuf) == napigen.napi.napi_object) {
+            const doc = try bson.jsObjectToBsonDoc(js, queryBuf, ally);
+            owned_doc = doc;
+            break :blk doc;
+        } else {
+            return error.InvalidQuery;
+        }
+    };
+
+    var query = try albedo.Query.parse(ally, queryDoc);
+    return bucket.subscribe(query) catch |err| {
+        query.deinit(ally);
+        return err;
+    };
+}
+
+fn subscribePoll(js: *napigen.JsContext, sub: *albedo.Bucket.Subscription, maxEvents: u32) !napigen.napi_value {
+    const batch = try sub.poll(maxEvents);
+    if (batch == null) return js.null();
+
+    return try bson.bsonDocToJsObject(js, batch.?, false);
+}
+
+fn subscribeClose(sub: *albedo.Bucket.Subscription) void {
+    sub.deinit();
+}
+
 const ReplicationStruct = struct {
     cb_ref: napigen.napi_ref,
     env: napigen.napi_env,
@@ -398,6 +435,9 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napi
     try js.setNamedProperty(exports, "transformClose", try js.createFunction(transformClose));
     try js.setNamedProperty(exports, "transformData", try js.createFunction(transformData));
     try js.setNamedProperty(exports, "transformApply", try js.createFunction(transformApply));
+    try js.setNamedProperty(exports, "subscribe", try js.createFunction(subscribe));
+    try js.setNamedProperty(exports, "subscribePoll", try js.createFunction(subscribePoll));
+    try js.setNamedProperty(exports, "subscribeClose", try js.createFunction(subscribeClose));
     try js.setNamedProperty(exports, "setReplicationCallback", try js.createFunction(setReplicationCallback));
     try js.setNamedProperty(exports, "applyReplicationBatch", try js.createFunction(applyReplicationBatch));
     var ctor_ref: napigen.napi.napi_ref = undefined;

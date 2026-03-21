@@ -8,7 +8,7 @@ This package wraps the core database engine with a concise TypeScript API, ships
 
 - 🧱 Access to the full Albedo bucket API from Node.js or Bun
 - 📦 Precompiled native modules for Linux (glibc & musl), macOS, and arm64/x64
-- 🔁 Generator-based iterators for queries and in-place document transforms
+- 🔁 Generator-based iterators for queries, transforms, and live subscriptions
 - 🔄 Built-in replication callback and apply mechanisms
 - 🧪 TypeScript typings and Bun-based test suite
 
@@ -86,6 +86,48 @@ while (!step.done) {
 }
 ```
 
+### Subscribing to change events
+
+`Bucket.subscribe()` exposes the new oplog-backed subscription API as an async
+generator. It yields individual change events rather than re-scanned documents.
+
+```ts
+const bucket = Bucket.open("./example.bucket", {
+  wal: true,
+  write_durability: "all",
+});
+
+for await (const event of bucket.subscribe<{ name: string }>(
+  where("name", { $eq: "Ada" }),
+  { pollingTimeout: 50, batchSize: 64 },
+)) {
+  console.log(event.op, event.seqno, event.doc);
+
+  if (event.op === "delete") {
+    console.log("deleted", event.doc_id.toString());
+  }
+}
+```
+
+Each yielded event has this shape:
+
+```ts
+type SubscriptionEvent<T = unknown> = {
+  seqno: bigint;
+  op: "insert" | "update" | "delete";
+  doc_id: ObjectId;
+  ts: bigint;
+  doc?: T;
+};
+```
+
+Notes:
+
+- Subscriptions require WAL mode to be active.
+- `doc` is present for inline insert and update payloads.
+- Delete events still include `doc_id`, even when `doc` is absent.
+- The generator closes the native subscription automatically when iteration stops.
+
 ### Replication
 
 ```ts
@@ -146,6 +188,7 @@ Serialized documents that contain `_id` fields with a BSON ObjectId will be revi
   - `insert(doc: object | Uint8Array)`
   - `delete(query?: object | Query)`
   - `list<T>(query?: object | Query): Generator<T>`
+  - `subscribe<T>(query?: object | Query, options?: { pollingTimeout?: number; batchSize?: number }): AsyncGenerator<SubscriptionEvent<T>>`
   - `transformIterator<T>(query?: object | Query): Generator<T, undefined, object | null>`
   - `ensureIndex(name: string, options: { unique: boolean; sparse: boolean; reverse: boolean })`
   - `dropIndex(name: string)`
@@ -153,6 +196,13 @@ Serialized documents that contain `_id` fields with a BSON ObjectId will be revi
   - `setReplicationCallback(cb: (data: Uint8Array) => void)`
   - `applyReplicationBatch(batch: Uint8Array)`
   - accepts raw BSON `Uint8Array` payloads anywhere a query or document object is expected
+
+- `SubscriptionEvent<T>`
+  - `seqno: bigint`
+  - `op: "insert" | "update" | "delete"`
+  - `doc_id: ObjectId`
+  - `ts: bigint`
+  - `doc?: T`
 
 - `Query`
   - `where(field, filter)` chains field predicates (e.g. `{ $eq: value }`, `{ $gt: 10 }`)

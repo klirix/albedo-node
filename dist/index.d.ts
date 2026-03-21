@@ -1,5 +1,15 @@
 type ByteBuffer = Uint8Array;
+type BucketHandle = object;
+type ListIteratorHandle = object;
+type TransformIteratorHandle = object;
+type SubscriptionHandle = object;
 interface IndexOptions {
+    unique: boolean;
+    sparse: boolean;
+    reverse: boolean;
+}
+interface IndexInfo {
+    name: string;
     unique: boolean;
     sparse: boolean;
     reverse: boolean;
@@ -11,6 +21,20 @@ interface ObjectIdInstance {
 interface ObjectIdConstructor {
     new (buffer?: ByteBuffer): ObjectIdInstance;
     fromString(str: string): ObjectIdInstance;
+}
+export interface SubscriptionEvent<T = unknown> {
+    seqno: bigint;
+    op: "insert" | "update" | "delete";
+    doc_id: ObjectIdInstance;
+    ts: bigint;
+    doc?: T;
+}
+interface SubscriptionBatch<T = unknown> {
+    batch: Array<SubscriptionEvent<T>>;
+}
+export interface SubscribeOptions {
+    pollingTimeout?: number;
+    batchSize?: number;
 }
 /**
  * Controls when fsync is called to guarantee write durability.
@@ -34,11 +58,36 @@ interface OpenBucketOptions {
     write_durability?: WriteDurability;
     read_durability?: ReadDurability;
 }
-export declare const albedo: any;
+interface AlbedoModule {
+    ObjectId: ObjectIdConstructor;
+    serialize(value: unknown): Uint8Array;
+    deserialize<T = unknown>(data: ByteBuffer): T;
+    open(path: string): BucketHandle;
+    open_with_options(path: string, options: OpenBucketOptions): BucketHandle;
+    close(bucket: BucketHandle): void;
+    list(bucket: BucketHandle, query: object): ListIteratorHandle;
+    listClose(cursor: ListIteratorHandle): void;
+    listData(cursor: ListIteratorHandle): unknown | null;
+    insert(bucket: BucketHandle, doc: ByteBuffer | object): void;
+    ensureIndex(bucket: BucketHandle, name: string, options: IndexOptions): void;
+    listIndexes(bucket: BucketHandle): Record<string, IndexInfo>;
+    dropIndex(bucket: BucketHandle, name: string): void;
+    delete(bucket: BucketHandle, query: object): void;
+    transform(bucket: BucketHandle, query: object): TransformIteratorHandle;
+    transformClose(iter: TransformIteratorHandle): void;
+    transformData(iter: TransformIteratorHandle): unknown | null;
+    transformApply(iter: TransformIteratorHandle, replace: ByteBuffer | object | null): void;
+    subscribe(bucket: BucketHandle, query: object): SubscriptionHandle;
+    subscribePoll<T = unknown>(sub: SubscriptionHandle, maxEvents: number): SubscriptionBatch<T> | null;
+    subscribeClose(sub: SubscriptionHandle): void;
+    setReplicationCallback(bucket: BucketHandle, callback: (data: Uint8Array) => void): void;
+    applyReplicationBatch(bucket: BucketHandle, data: ByteBuffer): void;
+}
+export declare const albedo: AlbedoModule;
 export default albedo;
 export declare const BSON: {
-    serialize: any;
-    deserialize: any;
+    serialize: (value: unknown) => Uint8Array;
+    deserialize: <T = unknown>(data: ByteBuffer) => T;
 };
 /**
  * Native ObjectId class constructor.
@@ -127,7 +176,7 @@ export declare class Bucket {
      * console.log(bucket.indexes);
      * ```
      */
-    get indexes(): any;
+    get indexes(): Record<string, IndexInfo>;
     /**
      * Create or update an index on a field.
      * @param name - index name (field path)
@@ -159,29 +208,26 @@ export declare class Bucket {
      */
     list<T>(query?: object | Query): Generator<T>;
     /**
-     * Async iterator that continuously polls for documents matching the
-     * optional query. Unlike `list`, when there are no more results the
-     * iterator waits for `pollingTimeout` milliseconds and retries,
-     * making it suitable for watching a bucket for new data.
+     * Async iterator that continuously polls a change subscription.
      *
-     * The native cursor is closed automatically when the consumer breaks
-     * out of the loop or the iterator is otherwise disposed.
+     * The generator yields individual oplog events rather than rescanned
+     * documents, and automatically closes the native subscription when the
+     * consumer stops iterating.
      *
      * @param query - filter or `Query` object
      * @param options - polling configuration
-     * @param options.pollingTimeout - ms to wait before retrying when
-     *   `listData` returns `null` (default `50`)
-     * @yields each document deserialized from the bucket
+     * @param options.pollingTimeout - ms to wait before retrying when the
+     *   subscription is idle (default `50`)
+     * @param options.batchSize - maximum number of change events to pull per
+     *   native poll (default `64`)
      * @example
      * ```ts
-     * for await (const user of bucket.stream<User>(where('active', { $eq: true }))) {
-     *   console.log(user);
+     * for await (const event of bucket.subscribe<User>(where('active', { $eq: true }))) {
+     *   console.log(event.op, event.doc);
      * }
      * ```
      */
-    stream<T>(query?: object | Query, options?: {
-        pollingTimeout?: number;
-    }): AsyncGenerator<T>;
+    subscribe<T>(query?: object | Query, options?: SubscribeOptions): AsyncGenerator<SubscriptionEvent<T>>;
     /**
      * Collect all documents matching the optional query into an array.
      * @param query - filter or `Query` object

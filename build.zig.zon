@@ -32,9 +32,12 @@
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
     .dependencies = .{
+        // .Albedo = .{
+        //     .url = "git+https://github.com/klirix/albedo?ref=main#cc2867d58f60fab7a40ee0f61b4d3642775c5687",
+        //     .hash = "Albedo-0.6.2-BBOn1desBwBze62vW9SiQaVDWOEpe1sgpuToWwLSgfmC",
+        // },
         .Albedo = .{
-            .url = "git+https://github.com/klirix/albedo?ref=main#cc2867d58f60fab7a40ee0f61b4d3642775c5687",
-            .hash = "Albedo-0.6.2-BBOn1desBwBze62vW9SiQaVDWOEpe1sgpuToWwLSgfmC",
+            .path = "../albedo",
         },
         .napigen = .{
             .url = "git+https://github.com/cztomsik/napigen?ref=main#bc2c8259d95be774847e60fce9bfc203ab623b30",
