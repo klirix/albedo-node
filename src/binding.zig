@@ -233,6 +233,25 @@ fn insert(js: *napigen.JsContext, bucket: *albedo.Bucket, docBuf: napigen.napi_v
     }
 }
 
+fn transactionBegin(bucket: *albedo.Bucket) !*albedo.Bucket.Transaction {
+    return try bucket.beginTransaction();
+}
+
+fn transactionInsert(js: *napigen.JsContext, tx: *albedo.Bucket.Transaction, docBuf: napigen.napi_value) !void {
+    var is_typed_array = false;
+    try napigen.check(napigen.napi.napi_is_typedarray(js.env, docBuf, &is_typed_array));
+    if (is_typed_array) {
+        const js_bytes = try getTypedArraySlice(js, docBuf);
+        const doc = albedo.BSONDocument{ .buffer = js_bytes };
+        _ = try tx.insert(doc);
+    } else if (try js.typeOf(docBuf) == napigen.napi.napi_object) {
+        const doc = try bson.jsObjectToBsonDoc(js, docBuf, ally);
+        _ = try tx.insert(doc);
+    } else {
+        return error.InvalidDocument;
+    }
+}
+
 const IndexOptions = struct {
     unique: bool,
     sparse: bool,
@@ -272,16 +291,30 @@ fn dropIndex(bucket: *albedo.Bucket, name: []const u8) !void {
 
 fn delete(js: *napigen.JsContext, bucket: *albedo.Bucket, queryObj: napigen.napi_value) !void {
     var arena = std.heap.ArenaAllocator.init(ally);
+    defer arena.deinit();
     const arena_ally = arena.allocator();
 
     const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj, arena_ally);
     var query = albedo.Query.parse(arena_ally, queryDoc) catch {
-        arena.deinit();
         return error.InvalidQuery;
     };
     defer query.deinit(arena_ally);
 
     try bucket.delete(query);
+}
+
+fn transactionDelete(js: *napigen.JsContext, tx: *albedo.Bucket.Transaction, queryObj: napigen.napi_value) !void {
+    var arena = std.heap.ArenaAllocator.init(ally);
+    defer arena.deinit();
+    const arena_ally = arena.allocator();
+
+    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj, arena_ally);
+    var query = albedo.Query.parse(arena_ally, queryDoc) catch {
+        return error.InvalidQuery;
+    };
+    defer query.deinit(arena_ally);
+
+    try tx.delete(query);
 }
 
 fn transform(js: *napigen.JsContext, bucket: *albedo.Bucket, queryObj: napigen.napi_value) !*albedo.Bucket.TransformIterator {
@@ -291,7 +324,21 @@ fn transform(js: *napigen.JsContext, bucket: *albedo.Bucket, queryObj: napigen.n
     const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj, arena.allocator());
     const query = try albedo.Query.parse(arena.allocator(), queryDoc);
 
-    return try bucket.transformIterate(arena, query);
+    const iter = try bucket.transformIterate(arena, query);
+    iter.owns_arena = true;
+    return iter;
+}
+
+fn transactionTransform(js: *napigen.JsContext, tx: *albedo.Bucket.Transaction, queryObj: napigen.napi_value) !*albedo.Bucket.TransformIterator {
+    const arena = try ally.create(std.heap.ArenaAllocator);
+    arena.* = std.heap.ArenaAllocator.init(ally);
+
+    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj, arena.allocator());
+    const query = try albedo.Query.parse(arena.allocator(), queryDoc);
+
+    const iter = try tx.transformIterate(arena, query);
+    iter.owns_arena = true;
+    return iter;
 }
 
 fn transformData(js: *napigen.JsContext, iter: *albedo.Bucket.TransformIterator) !napigen.napi_value {
@@ -324,6 +371,18 @@ fn transformApply(js: *napigen.JsContext, iter: *albedo.Bucket.TransformIterator
 
 fn transformClose(iter: *albedo.Bucket.TransformIterator) !void {
     try iter.close();
+}
+
+fn transactionCommit(tx: *albedo.Bucket.Transaction) !void {
+    try tx.commit();
+}
+
+fn transactionRollback(tx: *albedo.Bucket.Transaction) !void {
+    try tx.rollback();
+}
+
+fn transactionClose(tx: *albedo.Bucket.Transaction) !void {
+    try tx.close();
 }
 
 fn subscribe(js: *napigen.JsContext, bucket: *albedo.Bucket, queryBuf: napigen.napi_value) !*albedo.Bucket.Subscription {
@@ -427,14 +486,21 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napi
     try js.setNamedProperty(exports, "listClose", try js.createFunction(listClose));
     try js.setNamedProperty(exports, "listData", try js.createFunction(listData));
     try js.setNamedProperty(exports, "insert", try js.createFunction(insert));
+    try js.setNamedProperty(exports, "transactionBegin", try js.createFunction(transactionBegin));
+    try js.setNamedProperty(exports, "transactionInsert", try js.createFunction(transactionInsert));
     try js.setNamedProperty(exports, "ensureIndex", try js.createFunction(ensureIndex));
     try js.setNamedProperty(exports, "listIndexes", try js.createFunction(listIndexes));
     try js.setNamedProperty(exports, "dropIndex", try js.createFunction(dropIndex));
     try js.setNamedProperty(exports, "delete", try js.createFunction(delete));
+    try js.setNamedProperty(exports, "transactionDelete", try js.createFunction(transactionDelete));
     try js.setNamedProperty(exports, "transform", try js.createFunction(transform));
+    try js.setNamedProperty(exports, "transactionTransform", try js.createFunction(transactionTransform));
     try js.setNamedProperty(exports, "transformClose", try js.createFunction(transformClose));
     try js.setNamedProperty(exports, "transformData", try js.createFunction(transformData));
     try js.setNamedProperty(exports, "transformApply", try js.createFunction(transformApply));
+    try js.setNamedProperty(exports, "transactionCommit", try js.createFunction(transactionCommit));
+    try js.setNamedProperty(exports, "transactionRollback", try js.createFunction(transactionRollback));
+    try js.setNamedProperty(exports, "transactionClose", try js.createFunction(transactionClose));
     try js.setNamedProperty(exports, "subscribe", try js.createFunction(subscribe));
     try js.setNamedProperty(exports, "subscribePoll", try js.createFunction(subscribePoll));
     try js.setNamedProperty(exports, "subscribeClose", try js.createFunction(subscribeClose));

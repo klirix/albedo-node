@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Query = exports.Bucket = exports.ObjectId = exports.BSON = exports.albedo = void 0;
+exports.Query = exports.Bucket = exports.Transaction = exports.ObjectId = exports.BSON = exports.albedo = void 0;
 exports.where = where;
 const detect_libc_1 = require("detect-libc");
 function getNativeBinding() {
@@ -47,6 +47,106 @@ exports.BSON = {
  * ```
  */
 exports.ObjectId = exports.albedo.ObjectId;
+function convertToQuery(query) {
+    if (query instanceof Query) {
+        return query.query;
+    }
+    return query || {};
+}
+function* iterateTransform(iter) {
+    try {
+        let data;
+        while ((data = exports.albedo.transformData(iter)) !== undefined) {
+            const newDoc = yield data;
+            exports.albedo.transformApply(iter, newDoc);
+        }
+    }
+    finally {
+        exports.albedo.transformClose(iter);
+    }
+}
+function applyTransform(iter, fn) {
+    try {
+        let data;
+        while ((data = exports.albedo.transformData(iter)) !== undefined) {
+            exports.albedo.transformApply(iter, fn(data));
+        }
+    }
+    finally {
+        exports.albedo.transformClose(iter);
+    }
+}
+function aggregateErrors(message, errors) {
+    return new AggregateError(errors, message);
+}
+/**
+ * Wrapper around a native transaction handle providing
+ * write operations that are committed or rolled back together.
+ */
+class Transaction {
+    handle;
+    constructor(handle) {
+        this.handle = handle;
+    }
+    get nativeHandle() {
+        if (this.handle === null) {
+            throw new Error("Transaction is closed");
+        }
+        return this.handle;
+    }
+    /**
+     * Insert a document or raw byte buffer into the transaction.
+     */
+    insert(doc) {
+        exports.albedo.transactionInsert(this.nativeHandle, doc);
+    }
+    /**
+     * Delete documents matching the query from the transaction.
+     */
+    delete(query) {
+        exports.albedo.transactionDelete(this.nativeHandle, convertToQuery(query));
+    }
+    /**
+     * Generator that allows reading and modifying matching documents
+     * within the transaction.
+     */
+    transformIterator(query) {
+        return iterateTransform(exports.albedo.transactionTransform(this.nativeHandle, convertToQuery(query)));
+    }
+    /**
+     * Apply a transformation function to matching documents in the transaction.
+     */
+    transform(query, fn) {
+        applyTransform(exports.albedo.transactionTransform(this.nativeHandle, convertToQuery(query)), fn);
+    }
+    /**
+     * Alias for `transform` that reads more naturally for document updates.
+     */
+    update(query, fn) {
+        this.transform(query, fn);
+    }
+    /**
+     * Commit the transaction.
+     */
+    commit() {
+        exports.albedo.transactionCommit(this.nativeHandle);
+    }
+    /**
+     * Roll back the transaction.
+     */
+    rollback() {
+        exports.albedo.transactionRollback(this.nativeHandle);
+    }
+    /**
+     * Close the transaction and release native resources.
+     */
+    close() {
+        const handle = this.nativeHandle;
+        exports.albedo.transactionClose(handle);
+        this.handle = null;
+    }
+}
+exports.Transaction = Transaction;
 /**
  * Wrapper around a native Albedo bucket handle providing
  * methods for CRUD operations, indexing, iteration, and
@@ -115,6 +215,69 @@ class Bucket {
         exports.albedo.insert(this.handle, doc);
     }
     /**
+     * Begin a manual transaction on this bucket.
+     */
+    beginTransaction() {
+        return new Transaction(exports.albedo.transactionBegin(this.handle));
+    }
+    /**
+     * Run a callback inside a transaction and commit it on success.
+     *
+     * If the callback throws, the transaction is rolled back before the
+     * original error is re-thrown.
+     */
+    tx(fn) {
+        const tx = this.beginTransaction();
+        let result;
+        try {
+            result = fn(tx);
+        }
+        catch (error) {
+            try {
+                tx.rollback();
+            }
+            catch (rollbackError) {
+                try {
+                    tx.close();
+                }
+                catch (closeError) {
+                    throw aggregateErrors("Transaction failed, rollback failed, and close failed", [error, rollbackError, closeError]);
+                }
+                throw aggregateErrors("Transaction failed and rollback failed", [
+                    error,
+                    rollbackError,
+                ]);
+            }
+            try {
+                tx.close();
+            }
+            catch (closeError) {
+                throw aggregateErrors("Transaction failed and close failed", [
+                    error,
+                    closeError,
+                ]);
+            }
+            throw error;
+        }
+        try {
+            tx.commit();
+        }
+        catch (commitError) {
+            try {
+                tx.close();
+            }
+            catch (closeError) {
+                throw aggregateErrors("Transaction commit and close both failed", [
+                    commitError,
+                    closeError,
+                ]);
+            }
+            throw commitError;
+        }
+        tx.close();
+        return result;
+    }
+    /**
      * Delete documents matching the query. If no query is provided,
      * all documents will be removed.
      * @param query - filter object or `Query` instance
@@ -126,7 +289,7 @@ class Bucket {
      * ```
      */
     delete(query) {
-        exports.albedo.delete(this.handle, Bucket.convertToQuery(query));
+        exports.albedo.delete(this.handle, convertToQuery(query));
     }
     /**
      * Retrieve information about all indexes defined on the bucket.
@@ -172,7 +335,7 @@ class Bucket {
      * ```
      */
     *list(query) {
-        const cursor = exports.albedo.list(this.handle, Bucket.convertToQuery(query));
+        const cursor = exports.albedo.list(this.handle, convertToQuery(query));
         try {
             let data;
             while ((data = exports.albedo.listData(cursor)) !== null) {
@@ -206,7 +369,7 @@ class Bucket {
     async *subscribe(query, options) {
         const pollingTimeout = options?.pollingTimeout ?? 50;
         const batchSize = options?.batchSize ?? 64;
-        const subscription = exports.albedo.subscribe(this.handle, Bucket.convertToQuery(query));
+        const subscription = exports.albedo.subscribe(this.handle, convertToQuery(query));
         try {
             while (true) {
                 const batch = exports.albedo.subscribePoll(subscription, batchSize);
@@ -262,10 +425,7 @@ class Bucket {
      * ```
      */
     static convertToQuery(query) {
-        if (query instanceof Query) {
-            return query.query;
-        }
-        return query || {};
+        return convertToQuery(query);
     }
     /**
      * Generator that allows reading and optionally modifying each
@@ -284,18 +444,7 @@ class Bucket {
      * ```
      */
     *transformIterator(query) {
-        const queryObj = Bucket.convertToQuery(query);
-        const iter = exports.albedo.transform(this.handle, queryObj);
-        try {
-            let data;
-            while ((data = exports.albedo.transformData(iter)) !== undefined) {
-                const newDoc = yield data;
-                exports.albedo.transformApply(iter, newDoc);
-            }
-        }
-        finally {
-            exports.albedo.transformClose(iter);
-        }
+        yield* iterateTransform(exports.albedo.transform(this.handle, convertToQuery(query)));
     }
     /**
      * Apply a transformation function to each document matching the
@@ -316,17 +465,13 @@ class Bucket {
      * ```
      */
     transform(query, fn) {
-        const queryObj = Bucket.convertToQuery(query);
-        const iter = exports.albedo.transform(this.handle, queryObj);
-        try {
-            let data;
-            while ((data = exports.albedo.transformData(iter)) !== undefined) {
-                exports.albedo.transformApply(iter, fn(data));
-            }
-        }
-        finally {
-            exports.albedo.transformClose(iter);
-        }
+        applyTransform(exports.albedo.transform(this.handle, convertToQuery(query)), fn);
+    }
+    /**
+     * Alias for `transform` that reads more naturally for document updates.
+     */
+    update(query, fn) {
+        this.transform(query, fn);
     }
     /**
      * Register a callback to receive replication data produced by the

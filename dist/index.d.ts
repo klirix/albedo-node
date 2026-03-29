@@ -1,5 +1,6 @@
 type ByteBuffer = Uint8Array;
 type BucketHandle = object;
+type TransactionHandle = object;
 type ListIteratorHandle = object;
 type TransformIteratorHandle = object;
 type SubscriptionHandle = object;
@@ -69,14 +70,21 @@ interface AlbedoModule {
     listClose(cursor: ListIteratorHandle): void;
     listData(cursor: ListIteratorHandle): unknown | null;
     insert(bucket: BucketHandle, doc: ByteBuffer | object): void;
+    transactionBegin(bucket: BucketHandle): TransactionHandle;
+    transactionInsert(tx: TransactionHandle, doc: ByteBuffer | object): void;
     ensureIndex(bucket: BucketHandle, name: string, options: IndexOptions): void;
     listIndexes(bucket: BucketHandle): Record<string, IndexInfo>;
     dropIndex(bucket: BucketHandle, name: string): void;
     delete(bucket: BucketHandle, query: object): void;
+    transactionDelete(tx: TransactionHandle, query: object): void;
     transform(bucket: BucketHandle, query: object): TransformIteratorHandle;
+    transactionTransform(tx: TransactionHandle, query: object): TransformIteratorHandle;
     transformClose(iter: TransformIteratorHandle): void;
     transformData(iter: TransformIteratorHandle): unknown | null;
     transformApply(iter: TransformIteratorHandle, replace: ByteBuffer | object | null): void;
+    transactionCommit(tx: TransactionHandle): void;
+    transactionRollback(tx: TransactionHandle): void;
+    transactionClose(tx: TransactionHandle): void;
     subscribe(bucket: BucketHandle, query: object): SubscriptionHandle;
     subscribePoll<T = unknown>(sub: SubscriptionHandle, maxEvents: number): SubscriptionBatch<T> | null;
     subscribeClose(sub: SubscriptionHandle): void;
@@ -99,6 +107,50 @@ export declare const BSON: {
  * ```
  */
 export declare const ObjectId: ObjectIdConstructor;
+type QueryInput = object | Query;
+type TransformReplacement<T extends object> = T | ByteBuffer | null;
+/**
+ * Wrapper around a native transaction handle providing
+ * write operations that are committed or rolled back together.
+ */
+export declare class Transaction {
+    private handle;
+    constructor(handle: object);
+    private get nativeHandle();
+    /**
+     * Insert a document or raw byte buffer into the transaction.
+     */
+    insert(doc: object | ByteBuffer): void;
+    /**
+     * Delete documents matching the query from the transaction.
+     */
+    delete(query?: QueryInput): void;
+    /**
+     * Generator that allows reading and modifying matching documents
+     * within the transaction.
+     */
+    transformIterator<T extends object>(query?: QueryInput): Generator<T, undefined, TransformReplacement<T>>;
+    /**
+     * Apply a transformation function to matching documents in the transaction.
+     */
+    transform<T extends object>(query: QueryInput | undefined, fn: (doc: T) => TransformReplacement<T>): void;
+    /**
+     * Alias for `transform` that reads more naturally for document updates.
+     */
+    update<T extends object>(query: QueryInput | undefined, fn: (doc: T) => TransformReplacement<T>): void;
+    /**
+     * Commit the transaction.
+     */
+    commit(): void;
+    /**
+     * Roll back the transaction.
+     */
+    rollback(): void;
+    /**
+     * Close the transaction and release native resources.
+     */
+    close(): void;
+}
 /**
  * Wrapper around a native Albedo bucket handle providing
  * methods for CRUD operations, indexing, iteration, and
@@ -157,6 +209,17 @@ export declare class Bucket {
      * ```
      */
     insert(doc: object | ByteBuffer): void;
+    /**
+     * Begin a manual transaction on this bucket.
+     */
+    beginTransaction(): Transaction;
+    /**
+     * Run a callback inside a transaction and commit it on success.
+     *
+     * If the callback throws, the transaction is rolled back before the
+     * original error is re-thrown.
+     */
+    tx<T>(fn: (tx: Transaction) => T): T;
     /**
      * Delete documents matching the query. If no query is provided,
      * all documents will be removed.
@@ -275,7 +338,7 @@ export declare class Bucket {
      * }
      * ```
      */
-    transformIterator<T>(query?: object | Query): Generator<T, undefined, null | object>;
+    transformIterator<T extends object>(query?: object | Query): Generator<T, undefined, TransformReplacement<T>>;
     /**
      * Apply a transformation function to each document matching the
      * provided query. The predicate receives the current document and
@@ -294,7 +357,11 @@ export declare class Bucket {
      * });
      * ```
      */
-    transform<T extends object>(query: object | Query | undefined, fn: (doc: T) => T | null): void;
+    transform<T extends object>(query: object | Query | undefined, fn: (doc: T) => TransformReplacement<T>): void;
+    /**
+     * Alias for `transform` that reads more naturally for document updates.
+     */
+    update<T extends object>(query: object | Query | undefined, fn: (doc: T) => TransformReplacement<T>): void;
     /**
      * Register a callback to receive replication data produced by the
      * bucket.

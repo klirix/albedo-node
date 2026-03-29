@@ -2,6 +2,16 @@ import Bun from 'bun';
 import {describe, test, expect} from 'bun:test';
 import albedo, {BSON, Bucket, where, ObjectId} from './index';
 
+async function cleanupDb(path: string): Promise<void> {
+    for (const suffix of ['', '-wal', '-wal-shm']) {
+        try {
+            await Bun.file(`${path}${suffix}`).delete();
+        } catch {
+            // Ignore cleanup failures for files that were never created.
+        }
+    }
+}
+
 describe('Albedo — major functionality', () => {
     test('insert & list (objects)', async () => {
         const db = 'test.db';
@@ -16,7 +26,7 @@ describe('Albedo — major functionality', () => {
         ]);
 
         bucket.close();
-        await Bun.file(db).delete();
+        await cleanupDb(db);
     });
 
     test('ObjectId and BSON serialize/deserialize roundtrip using albedo.ObjectId', () => {
@@ -64,7 +74,7 @@ describe('Albedo — major functionality', () => {
         expect(after.name).toBeUndefined();
 
         bucket.close();
-        await Bun.file(db).delete();
+        await cleanupDb(db);
     });
 
     test('transformIterator can modify documents in-place', async () => {
@@ -96,7 +106,7 @@ describe('Albedo — major functionality', () => {
         );
 
         bucket.close();
-        await Bun.file(db).delete();
+        await cleanupDb(db);
     });
 
     test('Bucket.delete removes matching documents', async () => {
@@ -112,7 +122,7 @@ describe('Albedo — major functionality', () => {
         expect(results).toEqual([{ name: 'Bob', _id: expect.anything() }]);
 
         bucket.close();
-        await Bun.file(db).delete();
+        await cleanupDb(db);
     });
 
     test('Bucket.transform helper modifies and deletes documents', async () => {
@@ -140,7 +150,60 @@ describe('Albedo — major functionality', () => {
         expect(results.find(r => (r as any).name === 'C')).toBeUndefined();
 
         bucket.close();
-        await Bun.file(db).delete();
+        await cleanupDb(db);
+    });
+
+    test('Bucket.tx commits inserts, updates, and deletes together', async () => {
+        const db = 'test-transaction-commit.db';
+        const bucket = Bucket.open(db);
+        bucket.insert({ name: 'Alice', count: 1 });
+        bucket.insert({ name: 'Bob', count: 2 });
+
+        const result = bucket.tx((tx) => {
+            tx.insert({ name: 'Charlie', count: 3 });
+            tx.update(where('name', { $eq: 'Alice' }), (doc: any) => ({
+                ...doc,
+                name: 'Doofus',
+            }));
+            tx.delete(where('name', { $eq: 'Bob' }));
+            return 'committed';
+        });
+
+        expect(result).toBe('committed');
+        const results = Array.from(bucket.list({}));
+        expect(results).toHaveLength(2);
+        expect(results).toEqual(expect.arrayContaining([
+            { name: 'Doofus', count: 1, _id: expect.anything() },
+            { name: 'Charlie', count: 3, _id: expect.anything() },
+        ]));
+
+        bucket.close();
+        await cleanupDb(db);
+    });
+
+    test('Bucket.tx rolls back if the callback throws', async () => {
+        const db = 'test-transaction-rollback.db';
+        const bucket = Bucket.open(db);
+        bucket.insert({ name: 'Alice', count: 1 });
+        bucket.insert({ name: 'Bob', count: 2 });
+
+        expect(() => bucket.tx((tx) => {
+            tx.insert({ name: 'Charlie', count: 3 });
+            tx.update(where('name', { $eq: 'Alice' }), (doc: any) => ({
+                ...doc,
+                name: 'Doofus',
+            }));
+            tx.delete(where('name', { $eq: 'Bob' }));
+            throw new Error('boom');
+        })).toThrow('boom');
+
+        expect(Array.from(bucket.list({}))).toEqual([
+            { name: 'Alice', count: 1, _id: expect.anything() },
+            { name: 'Bob', count: 2, _id: expect.anything() },
+        ]);
+
+        bucket.close();
+        await cleanupDb(db);
     });
 
     test("Bucket.subscribe returns a listenable change stream", async () => {
@@ -161,16 +224,16 @@ describe('Albedo — major functionality', () => {
             }
         })();
 
-        bucket.insert({ name: "Stream", _id: 1 });
+        bucket.insert({ name: "Stream", id: 1 });
         await new Promise(resolve => setTimeout(resolve, 100)); // wait for the stream to pick up the first doc
-        bucket.transform(where("name", { $eq: "Stream" }), (doc: any) => ({ ...doc, _id: 2 })); // update the doc to trigger another stream event
+        bucket.transform(where("name", { $eq: "Stream" }), (doc: any) => ({ ...doc, id: 2 })); // update the doc to trigger another stream event
         // console.log("Inserted and updated docs, waiting for stream...", bucket.all(where("bame", { $eq: "Stream" })));
         // await new Promise((resolve) => setTimeout(resolve, 100));
 
         await promise;
 
         bucket.close();
-        await Bun.file(db).delete();
+        await cleanupDb(db);
 
         console.log("Received stream events:",received[0]);
 
@@ -210,7 +273,7 @@ describe('Albedo — major functionality', () => {
         );
 
         bucket.close();
-        await Bun.file(db).delete();
+        await cleanupDb(db);
     });
 
     test('Bucket.insert accepts a serialized BSON buffer', async () => {
@@ -223,7 +286,7 @@ describe('Albedo — major functionality', () => {
         expect(results).toEqual([{ name: 'BufferBob', value: 10, _id: expect.anything() }]);
 
         bucket.close();
-        await Bun.file(db).delete();
+        await cleanupDb(db);
     });
 
     test('replication: capture batch from one bucket and apply to another', async () => {
@@ -255,7 +318,7 @@ describe('Albedo — major functionality', () => {
 
         
         b.close();
-        await Bun.file(aDb).delete();
-        await Bun.file(bDb).delete();
+        await cleanupDb(aDb);
+        await cleanupDb(bDb);
     }, 10_000);
 });
