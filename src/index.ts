@@ -5,6 +5,10 @@ type TransactionHandle = object;
 type ListIteratorHandle = object;
 type TransformIteratorHandle = object;
 type SubscriptionHandle = object;
+export interface ReplicationCursor {
+  generation: bigint;
+  next_frame_index: bigint;
+}
 
 interface IndexOptions {
   unique: boolean;
@@ -85,6 +89,7 @@ interface AlbedoModule {
   listClose(cursor: ListIteratorHandle): void;
   listData(cursor: ListIteratorHandle): unknown | null;
   insert(bucket: BucketHandle, doc: ByteBuffer | object): void;
+  checkpoint(bucket: BucketHandle): void;
   transactionBegin(bucket: BucketHandle): TransactionHandle;
   transactionInsert(tx: TransactionHandle, doc: ByteBuffer | object): void;
   ensureIndex(bucket: BucketHandle, name: string, options: IndexOptions): void;
@@ -112,11 +117,16 @@ interface AlbedoModule {
     maxEvents: number,
   ): SubscriptionBatch<T> | null;
   subscribeClose(sub: SubscriptionHandle): void;
-  setReplicationCallback(
+  replicationCursor(bucket: BucketHandle): ReplicationCursor;
+  readReplicationBatch(
     bucket: BucketHandle,
-    callback: (data: Uint8Array) => void,
-  ): void;
-  applyReplicationBatch(bucket: BucketHandle, data: ByteBuffer): void;
+    cursor: ReplicationCursor,
+    maxBytes: number,
+  ): ByteBuffer | null;
+  applyReplicationBatch(
+    bucket: BucketHandle,
+    data: ByteBuffer,
+  ): ReplicationCursor;
 }
 import { familySync, MUSL } from "detect-libc";
 
@@ -377,6 +387,13 @@ export class Bucket {
    */
   insert(doc: object | ByteBuffer): void {
     albedo.insert(this.handle, doc);
+  }
+
+  /**
+   * Flush buffered bucket state through the native checkpoint mechanism.
+   */
+  checkpoint(): void {
+    albedo.checkpoint(this.handle);
   }
 
   /**
@@ -667,19 +684,15 @@ export class Bucket {
     this.transform(query, fn);
   }
 
-  /**
-   * Register a callback to receive replication data produced by the
-   * bucket.
-   * @param callback - invoked with raw replication bytes
-   * @example
-   * ```ts
-   * bucket.setReplicationCallback(bytes => {
-   *   console.log('got replication', bytes.length);
-   * });
-   * ```
-   */
-  setReplicationCallback(callback: (data: Uint8Array) => void): void {
-    albedo.setReplicationCallback(this.handle, callback);
+  replicationCursor(): ReplicationCursor {
+    return albedo.replicationCursor(this.handle);
+  }
+
+  readReplicationBatch(
+    cursor: ReplicationCursor,
+    maxBytes = 0,
+  ): Uint8Array | null {
+    return albedo.readReplicationBatch(this.handle, cursor, maxBytes);
   }
 
   /**
@@ -690,8 +703,8 @@ export class Bucket {
    * bucket.applyReplicationBatch(remoteBytes);
    * ```
    */
-  applyReplicationBatch(data: Uint8Array): void {
-    albedo.applyReplicationBatch(this.handle, data);
+  applyReplicationBatch(data: Uint8Array): ReplicationCursor {
+    return albedo.applyReplicationBatch(this.handle, data);
   }
 }
 

@@ -9,7 +9,7 @@ This package wraps the core database engine with a concise TypeScript API, ships
 - 🧱 Access to the full Albedo bucket API from Node.js or Bun
 - 📦 Precompiled native modules for Linux (glibc & musl), macOS, and arm64/x64
 - 🔁 Generator-based iterators for queries, transforms, and live subscriptions
-- 🔄 Built-in replication callback and apply mechanisms
+- 🔄 WAL-based replication helpers with explicit cursors and batches
 - 🧪 TypeScript typings and Bun-based test suite
 
 ## Installation
@@ -131,24 +131,35 @@ Notes:
 ### Replication
 
 ```ts
-const primary = Bucket.open("./primary.bucket");
-const replica = Bucket.open("./replica.bucket");
-
-const batches: Uint8Array[] = [];
-primary.setReplicationCallback((data) => {
-  batches.push(data);
+const primary = Bucket.open("./primary.bucket", {
+  wal: true,
+  write_durability: "all",
+});
+const replica = Bucket.open("./replica.bucket", {
+  wal: true,
+  write_durability: "all",
 });
 
-primary.insert({ name: "Replica", version: 1 });
-primary.close();
+const cursor = primary.replicationCursor();
 
-// Apply the first batch to the replica bucket
-if (batches.length > 0) {
-  replica.applyReplicationBatch(batches[0]);
+primary.insert({ name: "Replica", version: 1 });
+
+const batch = primary.readReplicationBatch(cursor);
+if (batch) {
+  const nextCursor = replica.applyReplicationBatch(batch);
+  console.log(nextCursor.next_frame_index);
 }
 
+primary.close();
 replica.close();
 ```
+
+Notes:
+
+- Replication requires WAL mode to be enabled on both buckets.
+- `replicationCursor()` snapshots the current position in the WAL stream.
+- `readReplicationBatch(cursor, maxBytes?)` returns `null` when there is nothing new to send.
+- `applyReplicationBatch(batch)` applies the batch and returns the replica's new cursor.
 
 ## Query objects and BSON payloads
 
@@ -181,21 +192,36 @@ Serialized documents that contain `_id` fields with a BSON ObjectId will be revi
 ## API reference
 
 - `default` export — raw Albedo native module
-  - `ObjectId`, `serialize`, `deserialize`, `open`, `close`, `insert`, `delete`, `list`, `transform`, `setReplicationCallback`, etc.
+  - `ObjectId`, `serialize`, `deserialize`, `open`, `open_with_options`, `close`, `insert`, `checkpoint`, `delete`, `list`, `transform`, `replicationCursor`, `readReplicationBatch`, `applyReplicationBatch`, etc.
 - `BSON.serialize(value)` / `BSON.deserialize(bytes)` — helper wrappers
 - `Bucket`
-  - `static open(path: string): Bucket`
+  - `static open(path: string, options?: OpenBucketOptions): Bucket`
   - `insert(doc: object | Uint8Array)`
+  - `checkpoint()`
   - `delete(query?: object | Query)`
   - `list<T>(query?: object | Query): Generator<T>`
   - `subscribe<T>(query?: object | Query, options?: { pollingTimeout?: number; batchSize?: number }): AsyncGenerator<SubscriptionEvent<T>>`
   - `transformIterator<T>(query?: object | Query): Generator<T, undefined, object | null>`
+  - `transform<T>(query, fn)` / `update<T>(query, fn)`
+  - `all<T>(query?)` / `one<T>(query?)`
+  - `beginTransaction()` / `tx(fn)`
   - `ensureIndex(name: string, options: { unique: boolean; sparse: boolean; reverse: boolean })`
   - `dropIndex(name: string)`
   - `indexes: Record<string, { name: string; unique: boolean; sparse: boolean; reverse: boolean }>`
-  - `setReplicationCallback(cb: (data: Uint8Array) => void)`
-  - `applyReplicationBatch(batch: Uint8Array)`
+  - `replicationCursor(): { generation: bigint; next_frame_index: bigint }`
+  - `readReplicationBatch(cursor, maxBytes?): Uint8Array | null`
+  - `applyReplicationBatch(batch: Uint8Array): { generation: bigint; next_frame_index: bigint }`
   - accepts raw BSON `Uint8Array` payloads anywhere a query or document object is expected
+
+- `OpenBucketOptions`
+  - `buildIdIndex?: boolean`
+  - `mode?: string`
+  - `auto_vaccuum?: boolean`
+  - `page_cache_capacity?: number`
+  - `wal?: boolean`
+  - `write_durability?: "all" | "manual" | { periodic: number }`
+  - `read_durability?: "shared" | "process"`
+  - `wal_auto_checkpoint?: (defaults to 1000 pages)` 
 
 - `SubscriptionEvent<T>`
   - `seqno: bigint`

@@ -292,33 +292,37 @@ describe('Albedo — major functionality', () => {
     test('replication: capture batch from one bucket and apply to another', async () => {
         const aDb = 'test-replica-a.db';
         const bDb = 'test-replica-b.db';
-        const a = Bucket.open(aDb);
-        const b = Bucket.open(bDb);
+        await cleanupDb(aDb);
+        await cleanupDb(bDb);
+        const a = Bucket.open(aDb, { wal: true, write_durability: 'all' });
+        const b = Bucket.open(bDb, { wal: true, write_durability: 'all' });
 
-        const batches: Uint8Array[] = [];
-        const replicated = new Promise(resolve => {
-            a.setReplicationCallback((data) => {
-              batches.push(data);
-                resolve(null);
-            });
-        })
+        const initialCursor = a.replicationCursor();
 
         a.insert({ name: 'Replicated', value: 1 });
-        a.close();
+        const batch = a.readReplicationBatch(initialCursor);
 
-        await replicated;
-
-        expect(batches.length).toBeGreaterThan(0);
-
-        // apply first batch to the second bucket
-        b.applyReplicationBatch(batches[0]);
+        expect(batch).not.toBeNull();
+        b.applyReplicationBatch(batch!);
 
         const results = Array.from(b.list({}));
         expect(results).toEqual([{ name: 'Replicated', value: 1, _id: expect.anything() }]);
 
-        
+        a.close();
         b.close();
         await cleanupDb(aDb);
         await cleanupDb(bDb);
     }, 10_000);
+
+    test('Bucket.checkpoint invokes native checkpoint', async () => {
+        const db = 'test-checkpoint.db';
+        await cleanupDb(db);
+        const bucket = Bucket.open(db);
+
+        bucket.insert({ name: 'Alice' });
+        expect(() => bucket.checkpoint()).not.toThrow();
+
+        bucket.close();
+        await cleanupDb(db);
+    });
 });

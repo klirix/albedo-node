@@ -6,6 +6,11 @@ const bson = @import("./bson.zig");
 
 const ally = std.heap.smp_allocator;
 
+const ReplicationCursorPayload = struct {
+    generation: u64,
+    next_frame_index: u64,
+};
+
 pub const std_options: std.Options = .{
     .crypto_always_getrandom = true,
 };
@@ -182,6 +187,21 @@ fn createUint8Array(env: napigen.napi_env, data: []const u8) !napigen.napi_value
     return uint8arr;
 }
 
+fn replicationCursorToJs(js: *napigen.JsContext, cursor: albedo.ReplicationCursor) !napigen.napi_value {
+    const obj = try js.createObject();
+    try js.setNamedProperty(obj, "generation", try js.createNumber(cursor.generation));
+    try js.setNamedProperty(obj, "next_frame_index", try js.createNumber(cursor.next_frame_index));
+    return obj;
+}
+
+fn replicationCursorFromJs(js: *napigen.JsContext, value: napigen.napi_value) !albedo.ReplicationCursor {
+    const payload = try js.read(ReplicationCursorPayload, value);
+    return .{
+        .generation = payload.generation,
+        .next_frame_index = payload.next_frame_index,
+    };
+}
+
 fn list(js: *napigen.JsContext, bucket: *albedo.Bucket, queryBuf: napigen.napi_value) !*albedo.Bucket.ListIterator {
     const arena = try ally.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(ally);
@@ -231,6 +251,10 @@ fn insert(js: *napigen.JsContext, bucket: *albedo.Bucket, docBuf: napigen.napi_v
     } else {
         return error.InvalidDocument;
     }
+}
+
+fn checkpoint(bucket: *albedo.Bucket) void {
+    bucket.checkpoint();
 }
 
 fn transactionBegin(bucket: *albedo.Bucket) !*albedo.Bucket.Transaction {
@@ -422,43 +446,20 @@ fn subscribeClose(sub: *albedo.Bucket.Subscription) void {
     sub.deinit();
 }
 
-const ReplicationStruct = struct {
-    cb_ref: napigen.napi_ref,
-    env: napigen.napi_env,
-    fn call(
-        context: ?*anyopaque, // User-provided context
-        data: [*]const u8, // Raw data: header (64 bytes) + N pages (8192 bytes each)
-        data_size: u32, // Total size of data (BucketHeader.byteSize + page_count * DEFAULT_PAGE_SIZE)
-        _: u32, // Number of pages in the batch
-    ) callconv(.c) u8 {
-        const ctx: *ReplicationStruct = @ptrCast(@alignCast(context));
-        const pageBuf = createUint8Array(ctx.env, data[0..data_size]) catch return 1;
-        var cb: napigen.napi_value = undefined;
-        napigen.check(napigen.napi.napi_get_reference_value(ctx.env, ctx.cb_ref, &cb)) catch return 1;
-        var undie: napigen.napi_value = undefined;
-        napigen.check(napigen.napi.napi_get_undefined(ctx.env, &undie)) catch return 1;
-        const argv = [_]napigen.napi_value{pageBuf};
-        napigen.check(napigen.napi.napi_call_function(ctx.env, undie, cb, 1, &argv[0], null)) catch return 1;
-        return 0;
-    }
-};
-
-fn setReplicationCallback(js: *napigen.JsContext, bucket: *albedo.Bucket, cb: napigen.napi_value) !void {
-    var cb_ref: napigen.napi_ref = undefined;
-    try napigen.check(napigen.napi.napi_create_reference(js.env, cb, 1, &cb_ref));
-    const replicationStruct = try ally.create(ReplicationStruct);
-    replicationStruct.* = .{
-        .cb_ref = cb_ref,
-        .env = js.env,
-    };
-    bucket.replication_callback = ReplicationStruct.call;
-    bucket.replication_context = @ptrCast(replicationStruct);
+fn replicationCursor(js: *napigen.JsContext, bucket: *albedo.Bucket) !napigen.napi_value {
+    return try replicationCursorToJs(js, try bucket.replicationCursor());
 }
 
-fn applyReplicationBatch(js: *napigen.JsContext, bucket: *albedo.Bucket, data: napigen.napi_value) !void {
-    // if (bucket.replication_callback == null) return;
+fn readReplicationBatch(js: *napigen.JsContext, bucket: *albedo.Bucket, cursorValue: napigen.napi_value, max_bytes: u32) !napigen.napi_value {
+    const cursor = try replicationCursorFromJs(js, cursorValue);
+    const batch = (try bucket.readReplicationBatch(cursor, max_bytes, ally)) orelse return js.null();
+    defer ally.free(batch);
+    return try createUint8Array(js.env, batch);
+}
+
+fn applyReplicationBatch(js: *napigen.JsContext, bucket: *albedo.Bucket, data: napigen.napi_value) !napigen.napi_value {
     const js_bytes = try getTypedArraySlice(js, data);
-    try bucket.applyReplicatedBatch(js_bytes, @truncate(@divFloor(js_bytes.len - 64, 8192)));
+    return try replicationCursorToJs(js, try bucket.applyReplicationBatch(js_bytes));
 }
 
 fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napigen.napi_value {
@@ -486,6 +487,7 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napi
     try js.setNamedProperty(exports, "listClose", try js.createFunction(listClose));
     try js.setNamedProperty(exports, "listData", try js.createFunction(listData));
     try js.setNamedProperty(exports, "insert", try js.createFunction(insert));
+    try js.setNamedProperty(exports, "checkpoint", try js.createFunction(checkpoint));
     try js.setNamedProperty(exports, "transactionBegin", try js.createFunction(transactionBegin));
     try js.setNamedProperty(exports, "transactionInsert", try js.createFunction(transactionInsert));
     try js.setNamedProperty(exports, "ensureIndex", try js.createFunction(ensureIndex));
@@ -504,7 +506,8 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napi
     try js.setNamedProperty(exports, "subscribe", try js.createFunction(subscribe));
     try js.setNamedProperty(exports, "subscribePoll", try js.createFunction(subscribePoll));
     try js.setNamedProperty(exports, "subscribeClose", try js.createFunction(subscribeClose));
-    try js.setNamedProperty(exports, "setReplicationCallback", try js.createFunction(setReplicationCallback));
+    try js.setNamedProperty(exports, "replicationCursor", try js.createFunction(replicationCursor));
+    try js.setNamedProperty(exports, "readReplicationBatch", try js.createFunction(readReplicationBatch));
     try js.setNamedProperty(exports, "applyReplicationBatch", try js.createFunction(applyReplicationBatch));
     var ctor_ref: napigen.napi.napi_ref = undefined;
     try napigen.check(napigen.napi.napi_create_reference(js.env, objectIdConstructor, 1, &ctor_ref));

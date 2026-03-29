@@ -215,6 +215,12 @@ class Bucket {
         exports.albedo.insert(this.handle, doc);
     }
     /**
+     * Flush buffered bucket state through the native checkpoint mechanism.
+     */
+    checkpoint() {
+        exports.albedo.checkpoint(this.handle);
+    }
+    /**
      * Begin a manual transaction on this bucket.
      */
     beginTransaction() {
@@ -473,19 +479,11 @@ class Bucket {
     update(query, fn) {
         this.transform(query, fn);
     }
-    /**
-     * Register a callback to receive replication data produced by the
-     * bucket.
-     * @param callback - invoked with raw replication bytes
-     * @example
-     * ```ts
-     * bucket.setReplicationCallback(bytes => {
-     *   console.log('got replication', bytes.length);
-     * });
-     * ```
-     */
-    setReplicationCallback(callback) {
-        exports.albedo.setReplicationCallback(this.handle, callback);
+    replicationCursor() {
+        return exports.albedo.replicationCursor(this.handle);
+    }
+    readReplicationBatch(cursor, maxBytes = 0) {
+        return exports.albedo.readReplicationBatch(this.handle, cursor, maxBytes);
     }
     /**
      * Apply a batch of replication operations to this bucket.
@@ -496,7 +494,7 @@ class Bucket {
      * ```
      */
     applyReplicationBatch(data) {
-        exports.albedo.applyReplicationBatch(this.handle, data);
+        return exports.albedo.applyReplicationBatch(this.handle, data);
     }
 }
 exports.Bucket = Bucket;

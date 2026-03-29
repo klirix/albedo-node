@@ -4,6 +4,10 @@ type TransactionHandle = object;
 type ListIteratorHandle = object;
 type TransformIteratorHandle = object;
 type SubscriptionHandle = object;
+export interface ReplicationCursor {
+    generation: bigint;
+    next_frame_index: bigint;
+}
 interface IndexOptions {
     unique: boolean;
     sparse: boolean;
@@ -70,6 +74,7 @@ interface AlbedoModule {
     listClose(cursor: ListIteratorHandle): void;
     listData(cursor: ListIteratorHandle): unknown | null;
     insert(bucket: BucketHandle, doc: ByteBuffer | object): void;
+    checkpoint(bucket: BucketHandle): void;
     transactionBegin(bucket: BucketHandle): TransactionHandle;
     transactionInsert(tx: TransactionHandle, doc: ByteBuffer | object): void;
     ensureIndex(bucket: BucketHandle, name: string, options: IndexOptions): void;
@@ -88,8 +93,9 @@ interface AlbedoModule {
     subscribe(bucket: BucketHandle, query: object): SubscriptionHandle;
     subscribePoll<T = unknown>(sub: SubscriptionHandle, maxEvents: number): SubscriptionBatch<T> | null;
     subscribeClose(sub: SubscriptionHandle): void;
-    setReplicationCallback(bucket: BucketHandle, callback: (data: Uint8Array) => void): void;
-    applyReplicationBatch(bucket: BucketHandle, data: ByteBuffer): void;
+    replicationCursor(bucket: BucketHandle): ReplicationCursor;
+    readReplicationBatch(bucket: BucketHandle, cursor: ReplicationCursor, maxBytes: number): ByteBuffer | null;
+    applyReplicationBatch(bucket: BucketHandle, data: ByteBuffer): ReplicationCursor;
 }
 export declare const albedo: AlbedoModule;
 export default albedo;
@@ -209,6 +215,10 @@ export declare class Bucket {
      * ```
      */
     insert(doc: object | ByteBuffer): void;
+    /**
+     * Flush buffered bucket state through the native checkpoint mechanism.
+     */
+    checkpoint(): void;
     /**
      * Begin a manual transaction on this bucket.
      */
@@ -362,18 +372,8 @@ export declare class Bucket {
      * Alias for `transform` that reads more naturally for document updates.
      */
     update<T extends object>(query: object | Query | undefined, fn: (doc: T) => TransformReplacement<T>): void;
-    /**
-     * Register a callback to receive replication data produced by the
-     * bucket.
-     * @param callback - invoked with raw replication bytes
-     * @example
-     * ```ts
-     * bucket.setReplicationCallback(bytes => {
-     *   console.log('got replication', bytes.length);
-     * });
-     * ```
-     */
-    setReplicationCallback(callback: (data: Uint8Array) => void): void;
+    replicationCursor(): ReplicationCursor;
+    readReplicationBatch(cursor: ReplicationCursor, maxBytes?: number): Uint8Array | null;
     /**
      * Apply a batch of replication operations to this bucket.
      * @param data - bytes produced by another bucket's replication
@@ -382,7 +382,7 @@ export declare class Bucket {
      * bucket.applyReplicationBatch(remoteBytes);
      * ```
      */
-    applyReplicationBatch(data: Uint8Array): void;
+    applyReplicationBatch(data: Uint8Array): ReplicationCursor;
 }
 type BSONValue = any;
 type FilterOperators = {
