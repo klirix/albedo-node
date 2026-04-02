@@ -75,6 +75,47 @@ bucket.close();
 
 You can chain multiple `where` calls or combine them with `sortBy` and `sector`. For quick one-off predicates, the standalone `where(field, filter)` helper returns a `Query` instance that slots into any method accepting a query.
 
+Logical groups are available as both instance methods and static constructors:
+
+```ts
+import { Query, where } from "albedo-node";
+
+const visibleUsers = Query.or(
+  where("role", "admin"),
+  Query.and(
+    where("role", "user"),
+    where("verified", true),
+  ),
+).nor(
+  where("deleted", true),
+);
+
+for (const doc of bucket.list(visibleUsers)) {
+  console.log(doc);
+}
+```
+
+This produces a query equivalent to:
+
+```ts
+{
+  query: {
+    $or: [
+      { role: "admin" },
+      {
+        $and: [
+          { role: "user" },
+          { verified: true },
+        ],
+      },
+    ],
+    $nor: [
+      { deleted: true },
+    ],
+  },
+}
+```
+
 ### Transforming documents in place
 
 ```ts
@@ -173,7 +214,21 @@ Regardless of which form you use, the structure mirrors the underlying Albedo qu
 
 - `{ query: { field: value } }` — equality filters
 - `{ query: { age: { "$gt": 40 } } }` — comparison operators
+- `{ query: { $or: [{ role: "admin" }, { public: true }], deleted: false } }` — logical groups mixed with leaf filters
 - `{ query: { _id: someId }, sector: { limit: 10, offset: 0 } }` — pagination controls
+
+Supported field operators in this binding include:
+
+- `$eq`, `$ne`, `$lt`, `$lte`, `$gt`, `$gte`
+- `$in`, `$between`
+- `$startsWith`, `$endsWith`
+- `$exists`, `$notExists`
+
+Logical operators supported inside `query` are:
+
+- `$or`
+- `$and`
+- `$nor`
 
 For the exhaustive list of operators and document shapes, consult the [Albedo Query reference](https://github.com/klirix/albedo#readme). Whatever BSON document the core engine accepts can be provided here either as a plain object or as prebuilt BSON bytes.
 
@@ -232,8 +287,14 @@ Serialized documents that contain `_id` fields with a BSON ObjectId will be revi
 
 - `Query`
   - `where(field, filter)` chains field predicates (e.g. `{ $eq: value }`, `{ $gt: 10 }`)
+  - `or(...clauses)` adds an `$or` group
+  - `and(...clauses)` adds an `$and` group
+  - `nor(...clauses)` adds a `$nor` group
   - `sortBy(field, direction?)` sets sort order
   - `sector(offset?, limit?)` applies pagination window
+  - `static or(...clauses): Query` creates a query with an `$or` group
+  - `static and(...clauses): Query` creates a query with an `$and` group
+  - `static nor(...clauses): Query` creates a query with a `$nor` group
 
 - `where(field, filter): Query` — convenience helper that creates a single-field `Query`
 

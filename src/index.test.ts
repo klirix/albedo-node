@@ -1,6 +1,6 @@
 import Bun from 'bun';
 import {describe, test, expect} from 'bun:test';
-import albedo, {BSON, Bucket, where, ObjectId} from './index';
+import albedo, {BSON, Bucket, Query, where, ObjectId} from './index';
 
 async function cleanupDb(path: string): Promise<void> {
     for (const suffix of ['', '-wal', '-wal-shm']) {
@@ -120,6 +120,64 @@ describe('Albedo — major functionality', () => {
 
         const results = Array.from(bucket.list({}));
         expect(results).toEqual([{ name: 'Bob', _id: expect.anything() }]);
+
+        bucket.close();
+        await cleanupDb(db);
+    });
+
+    test('Bucket.list supports logical query operators', async () => {
+        const db = 'test-logical-query.db';
+        const bucket = Bucket.open(db);
+        bucket.insert({ name: 'Alice', role: 'admin', deleted: false, verified: true });
+        bucket.insert({ name: 'Bob', role: 'user', deleted: false, verified: true });
+        bucket.insert({ name: 'Carol', role: 'user', deleted: true, verified: true });
+        bucket.insert({ name: 'Dave', role: 'guest', deleted: false, verified: false });
+
+        const results = Array.from(bucket.list({
+            query: {
+                $or: [
+                    { role: 'admin' },
+                    {
+                        $and: [
+                            { verified: true },
+                            { role: 'user' },
+                        ],
+                    },
+                ],
+                $nor: [
+                    { deleted: true },
+                ],
+            },
+        })) as Array<{ name: string }>;
+
+        expect(results.map(doc => doc.name)).toEqual(['Alice', 'Bob']);
+
+        bucket.close();
+        await cleanupDb(db);
+    });
+
+    test('Query builder helpers compose logical clauses', async () => {
+        const db = 'test-logical-query-builder.db';
+        const bucket = Bucket.open(db);
+        bucket.insert({ name: 'Alice', role: 'admin', deleted: false, verified: true });
+        bucket.insert({ name: 'Bob', role: 'user', deleted: false, verified: true });
+        bucket.insert({ name: 'Carol', role: 'user', deleted: true, verified: true });
+        bucket.insert({ name: 'Dave', role: 'guest', deleted: false, verified: false });
+
+        const query = Query.or(
+            where('role', 'admin'),
+            Query.and(
+                where('verified', true),
+                where('role', 'user'),
+            ),
+        ).nor(
+            Query.nor(where('deleted', false)),
+            where('deleted', true),
+        );
+
+        const results = Array.from(bucket.list(query)) as Array<{ name: string }>;
+
+        expect(results.map(doc => doc.name)).toEqual(['Alice', 'Bob']);
 
         bucket.close();
         await cleanupDb(db);

@@ -1,3 +1,8 @@
+import { familySync, MUSL } from "detect-libc";
+import { Query, type QueryInput } from "./query";
+
+export * from "./query";
+
 type ByteBuffer = Uint8Array;
 
 type BucketHandle = object;
@@ -128,7 +133,6 @@ interface AlbedoModule {
     data: ByteBuffer,
   ): ReplicationCursor;
 }
-import { familySync, MUSL } from "detect-libc";
 
 function getNativeBinding() {
   const platformMap: Record<NodeJS.Platform, string> = {
@@ -184,7 +188,6 @@ export const BSON = {
  */
 export const ObjectId: ObjectIdConstructor = albedo.ObjectId;
 
-type QueryInput = object | Query;
 type TransformReplacement<T extends object> = T | ByteBuffer | null;
 
 function convertToQuery(query?: QueryInput): object {
@@ -474,7 +477,7 @@ export class Bucket {
    * bucket.delete(new Query().where('name', { $eq: 'Bob' }));
    * ```
    */
-  delete(query?: object | Query): void {
+  delete(query?: QueryInput): void {
     albedo.delete(this.handle, convertToQuery(query));
   }
 
@@ -524,7 +527,7 @@ export class Bucket {
    * }
    * ```
    */
-  *list<T>(query?: object | Query): Generator<T> {
+  *list<T>(query?: QueryInput): Generator<T> {
     const cursor = albedo.list(this.handle, convertToQuery(query));
     try {
       let data: unknown | null;
@@ -557,7 +560,7 @@ export class Bucket {
    * ```
    */
   async *subscribe<T>(
-    query?: object | Query,
+    query?: QueryInput,
     options?: SubscribeOptions,
   ): AsyncGenerator<SubscriptionEvent<T>> {
     const pollingTimeout = options?.pollingTimeout ?? 50;
@@ -569,6 +572,7 @@ export class Bucket {
     try {
       while (true) {
         const batch = albedo.subscribePoll<T>(subscription, batchSize);
+        console.log("Polled subscription, got batch:", batch);
         if (batch !== null) {
           for (const event of batch.batch) {
             yield event;
@@ -591,7 +595,7 @@ export class Bucket {
    * const docs = bucket.all<{ name: string }>(where('name', { $exists: true }));
    * ```
    */
-  all<T>(query?: object | Query): Array<T> {
+  all<T>(query?: QueryInput): Array<T> {
     return Array.from(this.list<T>(query));
   }
 
@@ -605,7 +609,7 @@ export class Bucket {
    * const doc = bucket.one<{ _id: number }>(where('_id', { $eq: 1 }));
    * ```
    */
-  one<T>(query?: object | Query): T | null {
+  one<T>(query?: QueryInput): T | null {
     for (const doc of this.list<T>(query)) {
       return doc;
     }
@@ -623,7 +627,7 @@ export class Bucket {
    * Bucket.convertToQuery({ foo: { $exists: true } });
    * ```
    */
-  static convertToQuery(query?: object | Query): object {
+  static convertToQuery(query?: QueryInput): object {
     return convertToQuery(query);
   }
 
@@ -644,7 +648,7 @@ export class Bucket {
    * ```
    */
   *transformIterator<T extends object>(
-    query?: object | Query,
+    query?: QueryInput,
   ): Generator<T, undefined, TransformReplacement<T>> {
     yield* iterateTransform<T>(albedo.transform(this.handle, convertToQuery(query)));
   }
@@ -668,7 +672,7 @@ export class Bucket {
    * ```
    */
   transform<T extends object>(
-    query: object | Query | undefined,
+    query: QueryInput | undefined,
     fn: (doc: T) => TransformReplacement<T>,
   ): void {
     applyTransform<T>(albedo.transform(this.handle, convertToQuery(query)), fn);
@@ -678,7 +682,7 @@ export class Bucket {
    * Alias for `transform` that reads more naturally for document updates.
    */
   update<T extends object>(
-    query: object | Query | undefined,
+    query: QueryInput | undefined,
     fn: (doc: T) => TransformReplacement<T>,
   ): void {
     this.transform(query, fn);
@@ -706,109 +710,4 @@ export class Bucket {
   applyReplicationBatch(data: Uint8Array): ReplicationCursor {
     return albedo.applyReplicationBatch(this.handle, data);
   }
-}
-
-type BSONValue = any;
-
-type FilterOperators =
-  | { $eq: BSONValue }
-  | BSONValue // shorthand for equality
-  | { $ne: BSONValue }
-  | { $lt: BSONValue }
-  | { $lte: BSONValue }
-  | { $gt: BSONValue }
-  | { $gte: BSONValue }
-  | { $in: BSONValue[] }
-  | { $between: [BSONValue, BSONValue] }
-  | { $startsWith: string }
-  | { $endsWith: string }
-  | { $exists: boolean }
-  | { $notExists: boolean };
-
-type QueryObject = {
-  /** field path → filter */
-  query?: Record<string, FilterOperators>;
-  sort?: { asc: string } | { desc: string };
-  sector?: { offset?: number; limit?: number };
-  projection?: { omit: string[] } | { pick: string[] };
-};
-
-/**
- * Builder for query objects that can be used with bucket
- * operations like `list`, `delete`, and `transform`.
- *
- * The class supports chaining to construct filters, sorting,
- * and pagination (offset/limit).
- */
-export class Query {
-  private _query: QueryObject = {};
-
-  /**
-   * Return the raw query object to pass to the native layer.
-   */
-  get query(): object {
-    return this._query;
-  }
-
-  /**
-   * Add a filter condition for the specified field.
-   * @param field - dot-separated path to the document field
-   * @param filter - comparison operator object
-   * @returns the same `Query` for chaining
-   * @example
-   * ```ts
-   * const q = new Query().where('age', { $gt: 18 });
-   * ```
-   */
-  where(field: string, filter: FilterOperators): this {
-    if (!this._query.query) {
-      this._query.query = {};
-    }
-    this._query.query[field] = filter;
-    return this;
-  }
-
-  /**
-   * Specify sorting for the result set.
-   * @param field - field to sort by
-   * @param direction - `asc` or `desc` (defaults to `asc`)
-   * @example
-   * ```ts
-   * const q = new Query().sortBy('name', 'desc');
-   * ```
-   */
-  sortBy(field: string, direction: "asc" | "desc" = "asc"): this {
-    this._query.sort = direction === "asc" ? { asc: field } : { desc: field };
-    return this;
-  }
-
-  /**
-   * Set an offset and limit for pagination.
-   * @param offset - number of documents to skip
-   * @param limit - maximum number of documents to return
-   * @example
-   * ```ts
-   * const q = new Query().sector(10, 5);
-   * ```
-   */
-  sector(offset?: number, limit?: number): this {
-    this._query.sector = { offset, limit };
-    return this;
-  }
-}
-
-/**
- * Shortcut helper that creates a new `Query` with a single
- * `where` clause applied.
- *
- * @param field - field name to filter on
- * @param filter - filter operator object
- * @returns a `Query` instance ready to use
- * @example
- * ```ts
- * bucket.list(where('age', { $lt: 30 }));
- * ```
- */
-export function where(field: string, filter: FilterOperators): Query {
-  return new Query().where(field, filter);
 }
