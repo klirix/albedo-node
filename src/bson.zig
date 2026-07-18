@@ -7,7 +7,11 @@ const bson = albedo.bson;
 
 pub var objectIdConstructorRef: ?napi.napi_ref = null;
 
-// Ensure we use getrandom for secure random bytes, which is needed for ObjectId generation
+const BsonConversionError = ng.Error || error{
+    InvalidKey,
+    ValueTooLarge,
+    WriteFailed,
+};
 
 fn getObjectIdConstructor(js: *ng.JsContext) ng.Error!napi_value {
     if (objectIdConstructorRef == null) return error.napi_invalid_arg;
@@ -16,7 +20,6 @@ fn getObjectIdConstructor(js: *ng.JsContext) ng.Error!napi_value {
     return ctor;
 }
 
-// Takes a JavaScript object and returns a Uint8Array of BSON data.
 pub fn serialize(js: *ng.JsContext, jsObject: napi_value) !napi_value {
     const doc = try jsObjectToBsonDoc(js, jsObject, null);
     var buffer: napi_value = undefined;
@@ -29,7 +32,7 @@ pub fn serialize(js: *ng.JsContext, jsObject: napi_value) !napi_value {
     return uint8arr;
 }
 
-pub fn jsObjectToBsonDoc(js: *ng.JsContext, jsObject: napi_value, allocator: ?std.mem.Allocator) ng.Error!albedo.BSONDocument {
+pub fn jsObjectToBsonDoc(js: *ng.JsContext, jsObject: napi_value, allocator: ?std.mem.Allocator) BsonConversionError!albedo.BSONDocument {
     var propertyNames: napi_value = undefined;
     try ng.check(napi.napi_get_property_names(js.env, jsObject, &propertyNames));
     const length = try js.getArrayLength(propertyNames);
@@ -51,7 +54,7 @@ pub fn jsObjectToBsonDoc(js: *ng.JsContext, jsObject: napi_value, allocator: ?st
     return try bson.BSONDocument.fromPairs(ally, keypairs);
 }
 
-fn jsValueToBsonValue(js: *ng.JsContext, value: napi_value, allocator: std.mem.Allocator) !albedo.BSONValue {
+fn jsValueToBsonValue(js: *ng.JsContext, value: napi_value, allocator: std.mem.Allocator) BsonConversionError!albedo.BSONValue {
     const valueType = try js.typeOf(value);
     return switch (valueType) {
         napi.napi_number => {

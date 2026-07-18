@@ -1,8 +1,23 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Query = exports.Bucket = exports.Transaction = exports.ObjectId = exports.BSON = exports.albedo = void 0;
-exports.where = where;
+exports.Bucket = exports.Transaction = exports.ObjectId = exports.BSON = exports.albedo = void 0;
 const detect_libc_1 = require("detect-libc");
+const query_1 = require("./query");
+__exportStar(require("./query"), exports);
 function getNativeBinding() {
     const platformMap = {
         win32: "windows",
@@ -48,7 +63,7 @@ exports.BSON = {
  */
 exports.ObjectId = exports.albedo.ObjectId;
 function convertToQuery(query) {
-    if (query instanceof Query) {
+    if (query instanceof query_1.Query) {
         return query.query;
     }
     return query || {};
@@ -379,6 +394,7 @@ class Bucket {
         try {
             while (true) {
                 const batch = exports.albedo.subscribePoll(subscription, batchSize);
+                console.log("Polled subscription, got batch:", batch);
                 if (batch !== null) {
                     for (const event of batch.batch) {
                         yield event;
@@ -498,78 +514,3 @@ class Bucket {
     }
 }
 exports.Bucket = Bucket;
-/**
- * Builder for query objects that can be used with bucket
- * operations like `list`, `delete`, and `transform`.
- *
- * The class supports chaining to construct filters, sorting,
- * and pagination (offset/limit).
- */
-class Query {
-    _query = {};
-    /**
-     * Return the raw query object to pass to the native layer.
-     */
-    get query() {
-        return this._query;
-    }
-    /**
-     * Add a filter condition for the specified field.
-     * @param field - dot-separated path to the document field
-     * @param filter - comparison operator object
-     * @returns the same `Query` for chaining
-     * @example
-     * ```ts
-     * const q = new Query().where('age', { $gt: 18 });
-     * ```
-     */
-    where(field, filter) {
-        if (!this._query.query) {
-            this._query.query = {};
-        }
-        this._query.query[field] = filter;
-        return this;
-    }
-    /**
-     * Specify sorting for the result set.
-     * @param field - field to sort by
-     * @param direction - `asc` or `desc` (defaults to `asc`)
-     * @example
-     * ```ts
-     * const q = new Query().sortBy('name', 'desc');
-     * ```
-     */
-    sortBy(field, direction = "asc") {
-        this._query.sort = direction === "asc" ? { asc: field } : { desc: field };
-        return this;
-    }
-    /**
-     * Set an offset and limit for pagination.
-     * @param offset - number of documents to skip
-     * @param limit - maximum number of documents to return
-     * @example
-     * ```ts
-     * const q = new Query().sector(10, 5);
-     * ```
-     */
-    sector(offset, limit) {
-        this._query.sector = { offset, limit };
-        return this;
-    }
-}
-exports.Query = Query;
-/**
- * Shortcut helper that creates a new `Query` with a single
- * `where` clause applied.
- *
- * @param field - field name to filter on
- * @param filter - filter operator object
- * @returns a `Query` instance ready to use
- * @example
- * ```ts
- * bucket.list(where('age', { $lt: 30 }));
- * ```
- */
-function where(field, filter) {
-    return new Query().where(field, filter);
-}

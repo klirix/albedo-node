@@ -18,7 +18,9 @@ async function main() {
   const buildRes = await $`bun run build`;
   if (buildRes.exitCode !== 0) throw new Error("build failed");
 
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `${name.replace("/", "-")}-`));
+  const tmp = fs.mkdtempSync(
+    path.join(os.tmpdir(), `${name.replace("/", "-")}-`),
+  );
   console.log(`📦 Preparing publish directory: ${tmp}`);
 
   function copyOrFail(rel: string) {
@@ -41,17 +43,24 @@ async function main() {
   const publishPkg = { ...pkg } as Record<string, any>;
   delete publishPkg.devDependencies;
   delete publishPkg.scripts;
-  publishPkg.files = Array.from(new Set([...(publishPkg.files || []), "dist", "native"]));
+  publishPkg.files = Array.from(
+    new Set([...(publishPkg.files || []), "dist", "native"]),
+  );
   if (publishPkg.private) delete publishPkg.private;
 
-  fs.writeFileSync(path.join(tmp, "package.json"), JSON.stringify(publishPkg, null, 2) + "\n");
+  fs.writeFileSync(
+    path.join(tmp, "package.json"),
+    JSON.stringify(publishPkg, null, 2) + "\n",
+  );
 
   console.log("📋 Files staged for publish:");
   const lsRes = await $`ls -1`.cwd(tmp);
   if (lsRes.exitCode === 0) console.log(String(lsRes.stdout || "").trim());
 
   if (dry) {
-    console.log("⚠️ Dry run — skipping npm publish. Use --no-dry-run to actually publish.");
+    console.log(
+      "⚠️ Dry run — skipping npm publish. Use --no-dry-run to actually publish.",
+    );
   } else {
     const packOnly = process.argv.includes("--pack-only");
 
@@ -61,9 +70,12 @@ async function main() {
       console.error(String(packRes.stderr || packRes.stdout || ""));
       throw new Error(`bun pm pack failed (${packRes.exitCode})`);
     }
-    console.log("✅ Package tarball created:", packRes.stdout.toString('utf8'));
+    console.log("✅ Package tarball created:", packRes.stdout.toString("utf8"));
 
-    const tarballName = String(packRes.stdout || packRes.stderr || "").trim().split(/\r?\n/).pop();
+    const tarballName = String(packRes.stdout || packRes.stderr || "")
+      .trim()
+      .split(/\r?\n/)
+      .pop();
     const tarballPath = path.join(tmp, tarballName || "package.tgz");
     console.log(`📦 Packaged: ${tarballPath}`);
 
@@ -71,7 +83,8 @@ async function main() {
       console.log("ℹ️ --pack-only provided; skipping publish.");
     } else {
       console.log("➡️ Publishing tarball with bun publish...");
-      const publishRes = await $`npm publishbun --access public ${tarballPath}`.cwd(root);
+      const publishRes =
+        await $`npm publish --access public ${tarballPath}`.cwd(root);
       if (publishRes.exitCode !== 0) {
         console.error(String(publishRes.stderr || publishRes.stdout || ""));
         throw new Error(`bun publish failed (${publishRes.exitCode})`);

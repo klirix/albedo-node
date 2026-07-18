@@ -76,12 +76,15 @@ pub fn build(b: *std.Build) void {
         .target = defaultTarget,
         .optimize = optimize,
     });
+    const testAlbedoDep = b.dependencyFromBuildZig(albedo, .{});
+    test_mod.addImport("albedo", testAlbedoDep.module("albedo"));
 
     b.dest_dir = ".";
 
     const mod_tests = b.addTest(.{
         .root_module = test_mod,
     });
+    napigen.setup(mod_tests);
 
     const run_mod_tests = b.addRunArtifact(mod_tests);
 

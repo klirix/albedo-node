@@ -1,3 +1,5 @@
+import { type QueryInput } from "./query";
+export * from "./query";
 type ByteBuffer = Uint8Array;
 type BucketHandle = object;
 type TransactionHandle = object;
@@ -113,7 +115,6 @@ export declare const BSON: {
  * ```
  */
 export declare const ObjectId: ObjectIdConstructor;
-type QueryInput = object | Query;
 type TransformReplacement<T extends object> = T | ByteBuffer | null;
 /**
  * Wrapper around a native transaction handle providing
@@ -241,7 +242,7 @@ export declare class Bucket {
      * bucket.delete(new Query().where('name', { $eq: 'Bob' }));
      * ```
      */
-    delete(query?: object | Query): void;
+    delete(query?: QueryInput): void;
     /**
      * Retrieve information about all indexes defined on the bucket.
      * @example
@@ -279,7 +280,7 @@ export declare class Bucket {
      * }
      * ```
      */
-    list<T>(query?: object | Query): Generator<T>;
+    list<T>(query?: QueryInput): Generator<T>;
     /**
      * Async iterator that continuously polls a change subscription.
      *
@@ -300,7 +301,7 @@ export declare class Bucket {
      * }
      * ```
      */
-    subscribe<T>(query?: object | Query, options?: SubscribeOptions): AsyncGenerator<SubscriptionEvent<T>>;
+    subscribe<T>(query?: QueryInput, options?: SubscribeOptions): AsyncGenerator<SubscriptionEvent<T>>;
     /**
      * Collect all documents matching the optional query into an array.
      * @param query - filter or `Query` object
@@ -310,7 +311,7 @@ export declare class Bucket {
      * const docs = bucket.all<{ name: string }>(where('name', { $exists: true }));
      * ```
      */
-    all<T>(query?: object | Query): Array<T>;
+    all<T>(query?: QueryInput): Array<T>;
     /**
      * Return the first document matching the optional query, or `null`
      * when no document matches.
@@ -321,7 +322,7 @@ export declare class Bucket {
      * const doc = bucket.one<{ _id: number }>(where('_id', { $eq: 1 }));
      * ```
      */
-    one<T>(query?: object | Query): T | null;
+    one<T>(query?: QueryInput): T | null;
     /**
      * Normalize a query argument to a plain object, unpacking
      * `Query` instances.
@@ -331,7 +332,7 @@ export declare class Bucket {
      * Bucket.convertToQuery({ foo: { $exists: true } });
      * ```
      */
-    static convertToQuery(query?: object | Query): object;
+    static convertToQuery(query?: QueryInput): object;
     /**
      * Generator that allows reading and optionally modifying each
      * document matching the query.
@@ -348,7 +349,7 @@ export declare class Bucket {
      * }
      * ```
      */
-    transformIterator<T extends object>(query?: object | Query): Generator<T, undefined, TransformReplacement<T>>;
+    transformIterator<T extends object>(query?: QueryInput): Generator<T, undefined, TransformReplacement<T>>;
     /**
      * Apply a transformation function to each document matching the
      * provided query. The predicate receives the current document and
@@ -367,11 +368,11 @@ export declare class Bucket {
      * });
      * ```
      */
-    transform<T extends object>(query: object | Query | undefined, fn: (doc: T) => TransformReplacement<T>): void;
+    transform<T extends object>(query: QueryInput | undefined, fn: (doc: T) => TransformReplacement<T>): void;
     /**
      * Alias for `transform` that reads more naturally for document updates.
      */
-    update<T extends object>(query: object | Query | undefined, fn: (doc: T) => TransformReplacement<T>): void;
+    update<T extends object>(query: QueryInput | undefined, fn: (doc: T) => TransformReplacement<T>): void;
     replicationCursor(): ReplicationCursor;
     readReplicationBatch(cursor: ReplicationCursor, maxBytes?: number): Uint8Array | null;
     /**
@@ -384,87 +385,3 @@ export declare class Bucket {
      */
     applyReplicationBatch(data: Uint8Array): ReplicationCursor;
 }
-type BSONValue = any;
-type FilterOperators = {
-    $eq: BSONValue;
-} | BSONValue | {
-    $ne: BSONValue;
-} | {
-    $lt: BSONValue;
-} | {
-    $lte: BSONValue;
-} | {
-    $gt: BSONValue;
-} | {
-    $gte: BSONValue;
-} | {
-    $in: BSONValue[];
-} | {
-    $between: [BSONValue, BSONValue];
-} | {
-    $startsWith: string;
-} | {
-    $endsWith: string;
-} | {
-    $exists: boolean;
-} | {
-    $notExists: boolean;
-};
-/**
- * Builder for query objects that can be used with bucket
- * operations like `list`, `delete`, and `transform`.
- *
- * The class supports chaining to construct filters, sorting,
- * and pagination (offset/limit).
- */
-export declare class Query {
-    private _query;
-    /**
-     * Return the raw query object to pass to the native layer.
-     */
-    get query(): object;
-    /**
-     * Add a filter condition for the specified field.
-     * @param field - dot-separated path to the document field
-     * @param filter - comparison operator object
-     * @returns the same `Query` for chaining
-     * @example
-     * ```ts
-     * const q = new Query().where('age', { $gt: 18 });
-     * ```
-     */
-    where(field: string, filter: FilterOperators): this;
-    /**
-     * Specify sorting for the result set.
-     * @param field - field to sort by
-     * @param direction - `asc` or `desc` (defaults to `asc`)
-     * @example
-     * ```ts
-     * const q = new Query().sortBy('name', 'desc');
-     * ```
-     */
-    sortBy(field: string, direction?: "asc" | "desc"): this;
-    /**
-     * Set an offset and limit for pagination.
-     * @param offset - number of documents to skip
-     * @param limit - maximum number of documents to return
-     * @example
-     * ```ts
-     * const q = new Query().sector(10, 5);
-     * ```
-     */
-    sector(offset?: number, limit?: number): this;
-}
-/**
- * Shortcut helper that creates a new `Query` with a single
- * `where` clause applied.
- *
- * @param field - field name to filter on
- * @param filter - filter operator object
- * @returns a `Query` instance ready to use
- * @example
- * ```ts
- * bucket.list(where('age', { $lt: 30 }));
- * ```
- */
-export declare function where(field: string, filter: FilterOperators): Query;

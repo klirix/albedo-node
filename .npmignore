@@ -3,3 +3,4 @@ src
 zig-out
 build.zig
 build.zig.zon
+zig-pkg

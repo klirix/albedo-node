@@ -6,20 +6,31 @@ const bson = @import("./bson.zig");
 
 const ally = std.heap.smp_allocator;
 
+fn runtimeIo() std.Io {
+    return std.Io.Threaded.global_single_threaded.io();
+}
+
 const ReplicationCursorPayload = struct {
     generation: u64,
     next_frame_index: u64,
 };
 
-pub const std_options: std.Options = .{
-    .crypto_always_getrandom = true,
-};
+fn unixTimestamp() u32 {
+    var ts: std.posix.timespec = undefined;
+    switch (std.posix.errno(std.posix.system.clock_gettime(.REALTIME, &ts))) {
+        .SUCCESS => {
+            if (ts.sec <= 0) return 0;
+            if (ts.sec > std.math.maxInt(u32)) return std.math.maxInt(u32);
+            return @intCast(ts.sec);
+        },
+        else => return 0,
+    }
+}
 
 fn generateObjectIdBytes() [12]u8 {
     var raw: [12]u8 = undefined;
-    const ts = @as(u32, @intCast(std.time.timestamp()));
-    std.mem.writeInt(u32, raw[0..4], ts, .big);
-    std.crypto.random.bytes(raw[4..12]);
+    std.mem.writeInt(u32, raw[0..4], unixTimestamp(), .big);
+    runtimeIo().random(raw[4..12]);
 
     return raw;
 }
@@ -128,7 +139,7 @@ comptime {
 
 fn open(path: []const u8) !*albedo.Bucket {
     const bucket = try ally.create(albedo.Bucket);
-    bucket.* = try albedo.Bucket.openFile(ally, path);
+    bucket.* = try albedo.Bucket.openFile(ally, runtimeIo(), path);
     return bucket;
 }
 
@@ -136,7 +147,7 @@ fn open_with_options(js: *napigen.JsContext, path: []const u8, optionsBuf: napig
     const bucket = try ally.create(albedo.Bucket);
     const doc = try bson.jsObjectToBsonDoc(js, optionsBuf, ally);
     const options = try albedo.bson.fmt.parse(albedo.Bucket.OpenBucketOptions, doc, ally);
-    bucket.* = try albedo.Bucket.openFileWithOptions(ally, path, options.value);
+    bucket.* = try albedo.Bucket.openFileWithOptions(ally, runtimeIo(), path, options.value);
     return bucket;
 }
 
@@ -253,8 +264,8 @@ fn insert(js: *napigen.JsContext, bucket: *albedo.Bucket, docBuf: napigen.napi_v
     }
 }
 
-fn checkpoint(bucket: *albedo.Bucket) void {
-    bucket.checkpoint();
+fn checkpoint(bucket: *albedo.Bucket) !void {
+    try bucket.checkpoint();
 }
 
 fn transactionBegin(bucket: *albedo.Bucket) !*albedo.Bucket.Transaction {

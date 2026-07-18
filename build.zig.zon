@@ -25,7 +25,7 @@
     .fingerprint = 0x43bba12d5d793e9b, // Changing this has security and trust implications.
     // Tracks the earliest Zig version that the package considers to be a
     // supported use case.
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
     // This field is optional.
     // Each dependency must either provide a `url` and `hash`, or a `path`.
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
@@ -33,15 +33,15 @@
     // internet connectivity.
     .dependencies = .{
         .Albedo = .{
-            .url = "git+https://github.com/klirix/albedo?ref=v0.8.2#f25a4c325764c0351fbcaaa0d628ef967c70a888",
-            .hash = "Albedo-0.8.2-BBOn1aAkCgBSsbWQE271E_ckRLyNEHOSHgksFPa8Kji6",
+            .url = "git+https://github.com/klirix/albedo?ref=v0.9.1#3865ae419a7cfc8decf40f83d96f407761903166",
+            .hash = "Albedo-0.9.1-BBOn1fxzCgAeqr81ia7aouhiOhPd22Ju97B1j0-CEs1n",
         },
         // .Albedo = .{
         //     .path = "../albedo",
         // },
         .napigen = .{
-            .url = "git+https://github.com/cztomsik/napigen?ref=main#bc2c8259d95be774847e60fce9bfc203ab623b30",
-            .hash = "napigen-0.1.0-YpiIumJ9AAA4yVKISHKfN_2H0u7-su18jRHSSq_UUTNN",
+            .url = "git+https://github.com/klirix/napigen?ref=main#30f135feab60075eda841938037cc5fc5237890b",
+            .hash = "napigen-0.1.1-YpiIunV9AAB56ybtFG_7t_alL8d-vF_X1v843n2_JdtV",
         },
     },
     .paths = .{
