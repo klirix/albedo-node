@@ -383,4 +383,81 @@ describe('Albedo — major functionality', () => {
         bucket.close();
         await cleanupDb(db);
     });
+
+    test('Bucket.transfigurate applies a single update stage natively', async () => {
+        const db = 'test-transfigurate.db';
+        await cleanupDb(db);
+        const bucket = Bucket.open(db);
+
+        bucket.insert({ name: 'stark', age: 40, marriage: 'catelyn' });
+        bucket.insert({ name: 'lannister', age: 35 });
+
+        const updated = bucket.transfigurate(where('name', { $eq: 'stark' }), {
+            $set: { age: { $plus: ['$.age', 1] }, state: 'dead' },
+            $unset: 'marriage',
+        });
+        expect(updated).toBe(1);
+
+        const stark = bucket.one<{ age: number; state: string; marriage?: string }>(
+            where('name', { $eq: 'stark' }),
+        );
+        expect(stark?.age).toBe(41);
+        expect(stark?.state).toBe('dead');
+        expect(stark?.marriage).toBeUndefined();
+
+        const lannister = bucket.one<{ age: number; state?: string }>(
+            where('name', { $eq: 'lannister' }),
+        );
+        expect(lannister?.age).toBe(35);
+        expect(lannister?.state).toBeUndefined();
+
+        bucket.close();
+        await cleanupDb(db);
+    });
+
+    test('Bucket.transfigurate applies a pipeline of stages', async () => {
+        const db = 'test-transfigurate-pipeline.db';
+        await cleanupDb(db);
+        const bucket = Bucket.open(db);
+
+        bucket.insert({ first: 'Arya', last: 'Stark' });
+
+        const updated = bucket.transfigurate(undefined, [
+            { $set: { fullName: { $concat: ['$.first', ' ', '$.last'] } } },
+            { $unset: ['first', 'last'] },
+        ]);
+        expect(updated).toBe(1);
+
+        const doc = bucket.one<{ fullName: string; first?: string; last?: string }>();
+        expect(doc?.fullName).toBe('Arya Stark');
+        expect(doc?.first).toBeUndefined();
+        expect(doc?.last).toBeUndefined();
+
+        bucket.close();
+        await cleanupDb(db);
+    });
+
+    test('Transaction.transfigurate rolls back with the transaction', async () => {
+        const db = 'test-transfigurate-tx.db';
+        await cleanupDb(db);
+        const bucket = Bucket.open(db);
+
+        bucket.insert({ name: 'stark', age: 40 });
+
+        expect(() =>
+            bucket.tx((tx) => {
+                const updated = tx.transfigurate(where('name', { $eq: 'stark' }), {
+                    $set: { age: 99 },
+                });
+                expect(updated).toBe(1);
+                throw new Error('rollback please');
+            }),
+        ).toThrow('rollback please');
+
+        const stark = bucket.one<{ age: number }>(where('name', { $eq: 'stark' }));
+        expect(stark?.age).toBe(40);
+
+        bucket.close();
+        await cleanupDb(db);
+    });
 });

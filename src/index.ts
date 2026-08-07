@@ -56,6 +56,60 @@ export interface SubscribeOptions {
 }
 
 /**
+ * A reference to a path in the source document, e.g. `"$.profile.age"`.
+ */
+export type UpdateFieldRef = `$.${string}`;
+
+/**
+ * Placeholder resolved to the current time when the program is applied.
+ */
+export type UpdateNow = "$$now";
+
+/**
+ * Operator expressions available inside an update program.
+ */
+export type UpdateOperator =
+  | { $plus: [UpdateExpression, UpdateExpression, ...UpdateExpression[]] }
+  | { $minus: [UpdateExpression, UpdateExpression, ...UpdateExpression[]] }
+  | { $concat: UpdateExpression[] }
+  | { $isoDateTime: UpdateExpression };
+
+/**
+ * Any value usable on the right-hand side of an update assignment:
+ * a literal, a `"$.path"` field reference, `"$$now"`, or an operator.
+ */
+export type UpdateExpression =
+  | UpdateOperator
+  | UpdateFieldRef
+  | UpdateNow
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | any;
+
+/**
+ * A single update stage. Paths may be assigned directly, or through
+ * the `$set` / `$unset` operators.
+ *
+ * @example
+ * ```ts
+ * { $set: { age: { $plus: ['$.age', 1] } }, $unset: 'marriage' }
+ * ```
+ */
+export interface UpdateStage {
+  /** Assign evaluated expressions to the given document paths. */
+  $set?: Record<string, UpdateExpression>;
+  /** Remove one or more paths from the document. */
+  $unset?: string | string[];
+  /** Shorthand assignment of an expression to a document path. */
+  [path: string]: UpdateExpression;
+}
+
+/**
+ * An update program: either a single stage, a pipeline of stages applied
+ * in order, or a pre-serialized BSON buffer.
+ */
+export type UpdateProgramInput = UpdateStage | UpdateStage[] | ByteBuffer;
+
+/**
  * Controls when fsync is called to guarantee write durability.
  */
 type WriteDurability =
@@ -112,6 +166,20 @@ interface AlbedoModule {
   transformApply(
     iter: TransformIteratorHandle,
     replace: ByteBuffer | object | null,
+  ): void;
+  transfigurate(
+    bucket: BucketHandle,
+    query: object,
+    program: object | ByteBuffer,
+  ): number;
+  transactionTransfigurate(
+    tx: TransactionHandle,
+    query: object,
+    program: object | ByteBuffer,
+  ): number;
+  transformTransfigurate(
+    iter: TransformIteratorHandle,
+    program: object | ByteBuffer,
   ): void;
   transactionCommit(tx: TransactionHandle): void;
   transactionRollback(tx: TransactionHandle): void;
@@ -294,6 +362,32 @@ export class Transaction {
     fn: (doc: T) => TransformReplacement<T>,
   ): void {
     this.transform(query, fn);
+  }
+
+  /**
+   * Apply a declarative update program to every document matching the query,
+   * entirely inside the native layer, as part of this transaction.
+   *
+   * @param query - filter or `Query` instance
+   * @param program - update stage, pipeline of stages, or BSON buffer
+   * @returns the number of documents updated
+   * @example
+   * ```ts
+   * tx.transfigurate(where('name', { $eq: 'stark' }), {
+   *   $set: { age: { $plus: ['$.age', 1] }, seenAt: '$$now' },
+   *   $unset: 'marriage',
+   * });
+   * ```
+   */
+  transfigurate(
+    query: QueryInput | undefined,
+    program: UpdateProgramInput,
+  ): number {
+    return albedo.transactionTransfigurate(
+      this.nativeHandle,
+      convertToQuery(query),
+      program as object,
+    );
   }
 
   /**
@@ -686,6 +780,42 @@ export class Bucket {
     fn: (doc: T) => TransformReplacement<T>,
   ): void {
     this.transform(query, fn);
+  }
+
+  /**
+   * Apply a declarative update program to every document matching the query.
+   *
+   * Unlike `transform`, the documents never cross into JavaScript: the whole
+   * update runs natively in a single implicit transaction, which is much
+   * faster for bulk edits.
+   *
+   * @param query - filter or `Query` instance
+   * @param program - update stage, pipeline of stages, or BSON buffer
+   * @returns the number of documents updated
+   * @example
+   * ```ts
+   * // single stage
+   * bucket.transfigurate(where('name', { $eq: 'stark' }), {
+   *   $set: { age: { $plus: ['$.age', 1] }, seenAt: '$$now' },
+   *   $unset: 'marriage',
+   * });
+   *
+   * // pipeline of stages applied in order
+   * bucket.transfigurate(undefined, [
+   *   { $set: { fullName: { $concat: ['$.first', ' ', '$.last'] } } },
+   *   { $unset: ['first', 'last'] },
+   * ]);
+   * ```
+   */
+  transfigurate(
+    query: QueryInput | undefined,
+    program: UpdateProgramInput,
+  ): number {
+    return albedo.transfigurate(
+      this.handle,
+      convertToQuery(query),
+      program as object,
+    );
   }
 
   replicationCursor(): ReplicationCursor {

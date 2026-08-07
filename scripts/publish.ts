@@ -64,30 +64,33 @@ async function main() {
   } else {
     const packOnly = process.argv.includes("--pack-only");
 
-    console.log("➡️ Creating package tarball with `bun pm pack`...");
-    const packRes = await $`bun pm pack --quiet`.cwd(tmp);
-    if (packRes.exitCode !== 0) {
-      console.error(String(packRes.stderr || packRes.stdout || ""));
-      throw new Error(`bun pm pack failed (${packRes.exitCode})`);
-    }
-    console.log("✅ Package tarball created:", packRes.stdout.toString("utf8"));
-
-    const tarballName = String(packRes.stdout || packRes.stderr || "")
-      .trim()
-      .split(/\r?\n/)
-      .pop();
-    const tarballPath = path.join(tmp, tarballName || "package.tgz");
-    console.log(`📦 Packaged: ${tarballPath}`);
-
     if (packOnly) {
+      console.log("➡️ Creating package tarball with `bun pm pack`...");
+      const packRes = await $`bun pm pack --quiet`.cwd(tmp);
+      if (packRes.exitCode !== 0) {
+        console.error(String(packRes.stderr || packRes.stdout || ""));
+        throw new Error(`bun pm pack failed (${packRes.exitCode})`);
+      }
+
+      const tarballName = String(packRes.stdout || packRes.stderr || "")
+        .trim()
+        .split(/\r?\n/)
+        .pop();
+      const tarballPath = path.join(tmp, tarballName || "package.tgz");
+      // Keep the tarball around for inspection; move it next to the repo.
+      const finalPath = path.join(root, path.basename(tarballPath));
+      fs.copyFileSync(tarballPath, finalPath);
+      console.log(`📦 Packaged: ${finalPath}`);
       console.log("ℹ️ --pack-only provided; skipping publish.");
     } else {
-      console.log("➡️ Publishing tarball with bun publish...");
-      const publishRes =
-        await $`npm publish --access public ${tarballPath}`.cwd(root);
+      // Publish straight from the staging directory. In CI this picks up the
+      // OIDC token minted by the workflow (trusted publishing), so no
+      // NODE_AUTH_TOKEN / .npmrc credentials are required.
+      console.log("➡️ Publishing with npm...");
+      const publishRes = await $`npm publish`.cwd(tmp);
       if (publishRes.exitCode !== 0) {
         console.error(String(publishRes.stderr || publishRes.stdout || ""));
-        throw new Error(`bun publish failed (${publishRes.exitCode})`);
+        throw new Error(`npm publish failed (${publishRes.exitCode})`);
       }
       console.log("✅ Publish complete.");
     }

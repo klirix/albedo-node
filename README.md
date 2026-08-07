@@ -127,6 +127,56 @@ while (!step.done) {
 }
 ```
 
+### Declarative updates with `transfigurate`
+
+`transfigurate` applies a declarative *update program* to every matching
+document entirely inside the native layer — documents never cross into
+JavaScript, which makes it substantially faster than `transform` for bulk
+edits. It runs in a single implicit transaction and returns the number of
+documents updated.
+
+```ts
+const updated = bucket.transfigurate(where("name", { $eq: "stark" }), {
+  $set: {
+    age: { $plus: ["$.age", 1] }, // read the current value and increment
+    seenAt: "$$now", // current timestamp
+  },
+  $unset: "marriage", // remove a path
+});
+```
+
+Pass an array to run a pipeline of stages in order:
+
+```ts
+bucket.transfigurate(undefined, [
+  { $set: { fullName: { $concat: ["$.first", " ", "$.last"] } } },
+  { $unset: ["first", "last"] },
+]);
+```
+
+The same method exists on transactions, so updates roll back with the
+surrounding transaction:
+
+```ts
+bucket.tx((tx) => {
+  tx.transfigurate(where("active", { $eq: true }), { $set: { tier: "pro" } });
+});
+```
+
+**Update program syntax**
+
+| Form | Meaning |
+| --- | --- |
+| `{ $set: { path: expr } }` | Assign evaluated expressions to paths |
+| `{ $unset: "path" \| ["a", "b"] }` | Remove paths from the document |
+| `{ path: expr }` | Shorthand for `$set` |
+| `"$.path"` | Reference the current value at `path` |
+| `"$$now"` | Current time at apply time |
+| `{ $plus: [a, b, ...] }` | Numeric addition |
+| `{ $minus: [a, b, ...] }` | Numeric subtraction |
+| `{ $concat: [a, b, ...] }` | String concatenation |
+| `{ $isoDateTime: expr }` | Parse/format as ISO date-time |
+
 ### Subscribing to change events
 
 `Bucket.subscribe()` exposes the new oplog-backed subscription API as an async
@@ -247,7 +297,7 @@ Serialized documents that contain `_id` fields with a BSON ObjectId will be revi
 ## API reference
 
 - `default` export — raw Albedo native module
-  - `ObjectId`, `serialize`, `deserialize`, `open`, `open_with_options`, `close`, `insert`, `checkpoint`, `delete`, `list`, `transform`, `replicationCursor`, `readReplicationBatch`, `applyReplicationBatch`, etc.
+  - `ObjectId`, `serialize`, `deserialize`, `open`, `open_with_options`, `close`, `insert`, `checkpoint`, `delete`, `list`, `transform`, `transfigurate`, `replicationCursor`, `readReplicationBatch`, `applyReplicationBatch`, etc.
 - `BSON.serialize(value)` / `BSON.deserialize(bytes)` — helper wrappers
 - `Bucket`
   - `static open(path: string, options?: OpenBucketOptions): Bucket`
@@ -258,6 +308,7 @@ Serialized documents that contain `_id` fields with a BSON ObjectId will be revi
   - `subscribe<T>(query?: object | Query, options?: { pollingTimeout?: number; batchSize?: number }): AsyncGenerator<SubscriptionEvent<T>>`
   - `transformIterator<T>(query?: object | Query): Generator<T, undefined, object | null>`
   - `transform<T>(query, fn)` / `update<T>(query, fn)`
+  - `transfigurate(query: object | Query | undefined, program: UpdateStage | UpdateStage[] | Uint8Array): number`
   - `all<T>(query?)` / `one<T>(query?)`
   - `beginTransaction()` / `tx(fn)`
   - `ensureIndex(name: string, options: { unique: boolean; sparse: boolean; reverse: boolean })`
@@ -284,6 +335,14 @@ Serialized documents that contain `_id` fields with a BSON ObjectId will be revi
   - `doc_id: ObjectId`
   - `ts: bigint`
   - `doc?: T`
+
+- `UpdateStage` — one stage of an update program
+  - `$set?: Record<string, UpdateExpression>`
+  - `$unset?: string | string[]`
+  - `[path: string]: UpdateExpression` — shorthand assignment
+
+- `UpdateExpression` — a literal, `"$.path"` field reference, `"$$now"`, or one of
+  `{ $plus }`, `{ $minus }`, `{ $concat }`, `{ $isoDateTime }`
 
 - `Query`
   - `where(field, filter)` chains field predicates (e.g. `{ $eq: value }`, `{ $gt: 10 }`)

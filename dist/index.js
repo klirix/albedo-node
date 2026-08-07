@@ -141,6 +141,24 @@ class Transaction {
         this.transform(query, fn);
     }
     /**
+     * Apply a declarative update program to every document matching the query,
+     * entirely inside the native layer, as part of this transaction.
+     *
+     * @param query - filter or `Query` instance
+     * @param program - update stage, pipeline of stages, or BSON buffer
+     * @returns the number of documents updated
+     * @example
+     * ```ts
+     * tx.transfigurate(where('name', { $eq: 'stark' }), {
+     *   $set: { age: { $plus: ['$.age', 1] }, seenAt: '$$now' },
+     *   $unset: 'marriage',
+     * });
+     * ```
+     */
+    transfigurate(query, program) {
+        return exports.albedo.transactionTransfigurate(this.nativeHandle, convertToQuery(query), program);
+    }
+    /**
      * Commit the transaction.
      */
     commit() {
@@ -494,6 +512,34 @@ class Bucket {
      */
     update(query, fn) {
         this.transform(query, fn);
+    }
+    /**
+     * Apply a declarative update program to every document matching the query.
+     *
+     * Unlike `transform`, the documents never cross into JavaScript: the whole
+     * update runs natively in a single implicit transaction, which is much
+     * faster for bulk edits.
+     *
+     * @param query - filter or `Query` instance
+     * @param program - update stage, pipeline of stages, or BSON buffer
+     * @returns the number of documents updated
+     * @example
+     * ```ts
+     * // single stage
+     * bucket.transfigurate(where('name', { $eq: 'stark' }), {
+     *   $set: { age: { $plus: ['$.age', 1] }, seenAt: '$$now' },
+     *   $unset: 'marriage',
+     * });
+     *
+     * // pipeline of stages applied in order
+     * bucket.transfigurate(undefined, [
+     *   { $set: { fullName: { $concat: ['$.first', ' ', '$.last'] } } },
+     *   { $unset: ['first', 'last'] },
+     * ]);
+     * ```
+     */
+    transfigurate(query, program) {
+        return exports.albedo.transfigurate(this.handle, convertToQuery(query), program);
     }
     replicationCursor() {
         return exports.albedo.replicationCursor(this.handle);

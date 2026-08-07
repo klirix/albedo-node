@@ -1,6 +1,6 @@
 {
   "name": "albedo-node",
-  "version": "0.9.4",
+  "version": "0.10.0",
   "description": "High-performance embedded database for Node.js with native bindings, BSON support, indexing, and replication",
   "keywords": [
     "albedo",
@@ -12,9 +12,13 @@
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "native"
+  ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/klirix/albedo-node.git"
+    "url": "git+https://github.com/klirix/albedo-node.git"
   },
   "homepage": "https://github.com/klirix/albedo-node#readme",
   "bugs": {
@@ -24,10 +28,15 @@
     "build:binding": "zig build -Doptimize=ReleaseFast",
     "build:ts": "bun run tsc -p tsconfig.json",
     "build": "bun run build:binding && bun run build:ts",
+    "test": "bun test",
     "release": "bun ./scripts/publish.ts"
   },
   "author": "",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.3"

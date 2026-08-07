@@ -352,6 +352,85 @@ fn transactionDelete(js: *napigen.JsContext, tx: *albedo.Bucket.Transaction, que
     try tx.delete(query);
 }
 
+fn parseUpdateProgram(
+    js: *napigen.JsContext,
+    programObj: napigen.napi_value,
+    arena_ally: std.mem.Allocator,
+) !albedo.UpdateProgram {
+    var is_typed_array = false;
+    try napigen.check(napigen.napi.napi_is_typedarray(js.env, programObj, &is_typed_array));
+    if (is_typed_array) {
+        const js_bytes = try getTypedArraySlice(js, programObj);
+        return try albedo.UpdateProgram.parse(arena_ally, albedo.BSONDocument.init(js_bytes));
+    }
+
+    if (try js.typeOf(programObj) == napigen.napi.napi_object) {
+        const doc = try bson.jsObjectToBsonDoc(js, programObj, arena_ally);
+        return try albedo.UpdateProgram.parse(arena_ally, doc);
+    }
+
+    return error.InvalidUpdateProgram;
+}
+
+fn transfigurate(
+    js: *napigen.JsContext,
+    bucket: *albedo.Bucket,
+    queryObj: napigen.napi_value,
+    programObj: napigen.napi_value,
+) !u32 {
+    var arena = std.heap.ArenaAllocator.init(ally);
+    defer arena.deinit();
+    const arena_ally = arena.allocator();
+
+    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj, arena_ally);
+    var query = albedo.Query.parse(arena_ally, queryDoc) catch {
+        return error.InvalidQuery;
+    };
+    defer query.deinit(arena_ally);
+
+    var program = try parseUpdateProgram(js, programObj, arena_ally);
+    defer program.deinit(arena_ally);
+
+    return @intCast(try bucket.transfigurate(query, program));
+}
+
+fn transactionTransfigurate(
+    js: *napigen.JsContext,
+    tx: *albedo.Bucket.Transaction,
+    queryObj: napigen.napi_value,
+    programObj: napigen.napi_value,
+) !u32 {
+    var arena = std.heap.ArenaAllocator.init(ally);
+    defer arena.deinit();
+    const arena_ally = arena.allocator();
+
+    const queryDoc = try bson.jsObjectToBsonDoc(js, queryObj, arena_ally);
+    var query = albedo.Query.parse(arena_ally, queryDoc) catch {
+        return error.InvalidQuery;
+    };
+    defer query.deinit(arena_ally);
+
+    var program = try parseUpdateProgram(js, programObj, arena_ally);
+    defer program.deinit(arena_ally);
+
+    return @intCast(try tx.transfigurate(query, program));
+}
+
+fn transformTransfigurate(
+    js: *napigen.JsContext,
+    iter: *albedo.Bucket.TransformIterator,
+    programObj: napigen.napi_value,
+) !void {
+    var arena = std.heap.ArenaAllocator.init(ally);
+    defer arena.deinit();
+    const arena_ally = arena.allocator();
+
+    var program = try parseUpdateProgram(js, programObj, arena_ally);
+    defer program.deinit(arena_ally);
+
+    try iter.transfigurate(program);
+}
+
 fn transform(js: *napigen.JsContext, bucket: *albedo.Bucket, queryObj: napigen.napi_value) !*albedo.Bucket.TransformIterator {
     const arena = try ally.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(ally);
@@ -511,6 +590,9 @@ fn initModule(js: *napigen.JsContext, exports: napigen.napi_value) anyerror!napi
     try js.setNamedProperty(exports, "transformClose", try js.createFunction(transformClose));
     try js.setNamedProperty(exports, "transformData", try js.createFunction(transformData));
     try js.setNamedProperty(exports, "transformApply", try js.createFunction(transformApply));
+    try js.setNamedProperty(exports, "transfigurate", try js.createFunction(transfigurate));
+    try js.setNamedProperty(exports, "transactionTransfigurate", try js.createFunction(transactionTransfigurate));
+    try js.setNamedProperty(exports, "transformTransfigurate", try js.createFunction(transformTransfigurate));
     try js.setNamedProperty(exports, "transactionCommit", try js.createFunction(transactionCommit));
     try js.setNamedProperty(exports, "transactionRollback", try js.createFunction(transactionRollback));
     try js.setNamedProperty(exports, "transactionClose", try js.createFunction(transactionClose));
