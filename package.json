@@ -1,6 +1,6 @@
 {
   "name": "albedo-node",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "High-performance embedded database for Node.js with native bindings, BSON support, indexing, and replication",
   "keywords": [
     "albedo",
@@ -28,8 +28,7 @@
     "build:binding": "zig build -Doptimize=ReleaseFast",
     "build:ts": "bun run tsc -p tsconfig.json",
     "build": "bun run build:binding && bun run build:ts",
-    "test": "bun test",
-    "release": "bun ./scripts/publish.ts"
+    "test": "bun test"
   },
   "author": "",
   "license": "MIT",

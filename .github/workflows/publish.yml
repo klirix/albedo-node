@@ -1,49 +1,23 @@
 name: Publish
 
-# Publishes to npm via trusted publishing (OIDC) whenever the version in
-# package.json changes on main. No npm token is stored in this repository —
-# the registry is configured to trust this workflow file by name, so the
-# filename must stay in sync with the npm package settings.
+# Builds and tests on every push to main, and publishes to npm via trusted
+# publishing (OIDC) when the version in package.json is not yet on the
+# registry. No npm token is stored in this repository — npm is configured to
+# trust this workflow by filename, so renaming this file means updating the
+# trusted publisher settings on npmjs.com.
 on:
   push:
     branches:
       - main
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  check:
-    name: Check version
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.check.outputs.version }}
-      changed: ${{ steps.check.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Compare package.json version against the registry
-        id: check
-        run: |
-          set -euo pipefail
-          name=$(node -p "require('./package.json').name")
-          version=$(node -p "require('./package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-          published=$(npm view "$name@$version" version 2>/dev/null || true)
-          if [ -n "$published" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::$name@$version is already published; skipping."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::$name@$version is not on the registry; publishing."
-          fi
-
   publish:
-    name: Build and publish
-    needs: check
-    if: needs.check.outputs.changed == 'true'
+    name: Build, test and publish
     runs-on: ubuntu-latest
     permissions:
       id-token: write # required for npm trusted publishing (OIDC)
@@ -72,11 +46,42 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Cross-compiles every target into native/ and emits dist/. Neither
+      # directory is committed — published artifacts are always built here.
       - name: Build native bindings and TypeScript
         run: bun run build
 
       - name: Test
         run: bun test
 
+      - name: Check whether this version is already published
+        id: check
+        run: |
+          set -euo pipefail
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+
+          # `npm view <pkg> versions` exits non-zero when the package has never
+          # been published, which is a legitimate "publish it" case. Any other
+          # failure would also land here, but republishing an existing version
+          # is rejected by the registry, so the worst case is a failed run.
+          if versions=$(npm view "$name" versions --json 2>/dev/null); then
+            published=$(node -e "
+              const all = [].concat(JSON.parse(process.argv[1]));
+              process.stdout.write(all.includes(process.argv[2]) ? 'true' : 'false');
+            " "$versions" "$version")
+          else
+            published=false
+          fi
+
+          if [ "$published" = "true" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name@$version is already published; skipping."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name@$version is not on the registry; publishing."
+          fi
+
       - name: Publish to npm
-        run: bun run release
+        if: github.event_name == 'push' && steps.check.outputs.publish == 'true'
+        run: npm publish

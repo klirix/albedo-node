@@ -2,3 +2,5 @@ node_modules
 .zig-cache
 *.tgz
 **/zig-pkg
+dist
+native
